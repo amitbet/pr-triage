@@ -1,0 +1,514 @@
+// pr-triage sorts a branch's diff into: needs human review, read the
+// generated summary, or no review needed.
+//
+//	pr-triage [flags]                       triage base...head in -C dir
+//	pr-triage -pr URL [flags]               triage a GitHub PR
+//	pr-triage eval -fixtures DIR [flags]    score against labeled past PRs
+//	pr-triage serve [-addr host:port]       web UI (make ui)
+//	pr-triage prs -repo o/r -author login   triage an author's PRs into the UI cache
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"sync"
+	"syscall"
+
+	"github.com/amitbet/pr-triage/codemap"
+	"github.com/amitbet/pr-triage/codemap/indexer"
+	"github.com/amitbet/pr-triage/internal/appdirs"
+	"github.com/amitbet/pr-triage/llm"
+	"github.com/amitbet/pr-triage/triage"
+)
+
+type options struct {
+	dir, base, head, diffFile, policy, out string
+	outFile, pr                            string
+	classifier, classifyModel              string
+	fallback, fallbackModel                string
+	summarizer, summaryModel               string
+	openjevURL                             string
+	codemapDir, mapRepo                    string
+	codemapConfig                          string
+	codeRoot, org                          string // code map sources, see codemap_build.go
+	classifyEffort, reviewEffort           string
+	reviewTools                            bool
+	summaryLang                            string
+	reviewBudget                           string
+	concurrency, reviewConcurrency         int
+	failOnHuman                            bool
+	fixtures                               string
+	judge                                  bool
+	// serve / prs
+	addr, cache         string
+	repo, author, state string
+	limit               int
+	force               bool
+	reviewDryRun        bool
+}
+
+var subcommands = map[string]bool{"eval": true, "serve": true, "prs": true, "index": true}
+
+var version = "dev"
+var commit = "none"
+var date = "unknown"
+
+func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "version", "--version", "-version":
+			fmt.Printf("pr-triage %s (commit %s, built %s)\n", version, commit, date)
+			return
+		case "codemap":
+			if err := indexer.Run(os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, "codemap:", err)
+				os.Exit(1)
+			}
+			return
+		}
+	}
+	cacheRoot, err := appdirs.CacheDir()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "pr-triage:", err)
+		os.Exit(1)
+	}
+	var o options
+	fs := flag.NewFlagSet("pr-triage", flag.ExitOnError)
+	fs.StringVar(&o.dir, "C", ".", "git repository to triage")
+	fs.StringVar(&o.base, "base", "origin/main", "base ref (diff is base...head)")
+	fs.StringVar(&o.head, "head", "HEAD", "head ref")
+	fs.StringVar(&o.diffFile, "diff", "", "read the diff from this file ('-' for stdin) instead of git; head files are read from -C")
+	fs.StringVar(&o.pr, "pr", "", "triage a GitHub PR (URL or owner/repo#N) instead of a local branch")
+	fs.StringVar(&o.policy, "policy", "", "policy file (default <C>/.triage.yaml)")
+	fs.StringVar(&o.out, "out", "md", "output format: md|json")
+	fs.StringVar(&o.outFile, "o", "", "write the report to this file instead of stdout")
+	fs.StringVar(&o.classifier, "classifier", "auto", "auto|codex|claude-code|openjev|openai-api|claude-api|bedrock|vertex|foundry|azure-openai|ollama|off (auto: codex subscription, else claude-code subscription, else a configured cloud (CLAUDE_CODE_USE_BEDROCK/VERTEX/FOUNDRY, AZURE_OPENAI_ENDPOINT), else OPENAI_API_KEY, else ANTHROPIC_API_KEY, else ollama; openai and anthropic still work as old names)")
+	fs.StringVar(&o.classifyModel, "classify-model", "", "classifier model (default per provider)")
+	fs.StringVar(&o.fallback, "fallback", "auto", "with -classifier openjev: provider for units OpenJev isn't sure about (off = human)")
+	fs.StringVar(&o.fallbackModel, "fallback-model", "", "fallback model")
+	fs.StringVar(&o.summarizer, "summarizer", "auto", "auto|codex|claude-code|openai-api|claude-api|bedrock|vertex|foundry|azure-openai|ollama|off")
+	fs.StringVar(&o.summaryModel, "summary-model", "", "summary model (default per provider: a stronger model than the classifier)")
+	fs.StringVar(&o.classifyEffort, "classify-effort", "low", "reasoning effort for classify (openai, codex, claude-code): none|minimal|low|medium|high|xhigh ('' = model default)")
+	fs.StringVar(&o.reviewEffort, "review-effort", "medium", "reasoning effort for summarize/review (openai, codex, claude-code; '' = model default)")
+	fs.BoolVar(&o.reviewTools, "review-tools", true, "let the codex/claude-code reviewer read the repo at the PR head (a git worktree) and the Go module cache; slower, catches claims about code outside the diff (-review-tools=false to turn off)")
+	fs.StringVar(&o.summaryLang, "summary-lang", "", "language for summaries, review notes and issue text, e.g. Hebrew or Japanese (default English)")
+	fs.StringVar(&o.reviewBudget, "review-budget", "", "how much goes to human review: "+strings.Join(triage.BudgetNames, "|")+" (default: tiers.review_budget in the policy, else "+triage.DefaultBudget+")")
+	fs.StringVar(&o.openjevURL, "openjev-url", "", "OpenJev server (default $OPENJEV_BASE_URL or http://127.0.0.1:8771)")
+	fs.StringVar(&o.codemapDir, "codemap", filepath.Join(cacheRoot, "codemap"), "code map directory for impact, file history and tier moves (off to disable; build with pr-triage codemap build)")
+	fs.StringVar(&o.codemapConfig, "codemap-config", "", "code-map scoring config (default embedded rules)")
+	fs.StringVar(&o.codeRoot, "code-root", os.Getenv("PR_TRIAGE_CODE_ROOT"), "code map: local directory of git checkouts (DIR/<repo> or DIR/<org>/<repo>) to index from disk instead of cloning (default $PR_TRIAGE_CODE_ROOT)")
+	fs.StringVar(&o.org, "org", os.Getenv("PR_TRIAGE_ORG"), "code map: GitHub or GitHub Enterprise org or user whose repos `pr-triage index` clones and indexes: name, host/name or https://host/name (default $PR_TRIAGE_ORG)")
+	fs.StringVar(&o.mapRepo, "map-repo", "", "repo name in the code map for local runs (default: basename of the -C checkout)")
+	fs.IntVar(&o.concurrency, "j", 8, "parallel classify calls")
+	fs.IntVar(&o.reviewConcurrency, "review-j", 16, "parallel summarize/review calls (0 = same as -j)")
+	fs.BoolVar(&o.failOnHuman, "fail-on-human", false, "exit 2 if any unit needs human review")
+	fs.StringVar(&o.fixtures, "fixtures", "testdata/eval", "eval: directory of NAME.json cases")
+	fs.BoolVar(&o.judge, "judge", false, "eval: score summary faithfulness with OpenJev")
+	fs.StringVar(&o.addr, "addr", "127.0.0.1:0", "serve: listen address (port 0 chooses an available port)")
+	fs.StringVar(&o.cache, "cache", cacheRoot, "serve/prs/-pr: repo clones and cached results")
+	fs.StringVar(&o.repo, "repo", "", "prs: owner/repo, or host/owner/repo for GitHub Enterprise")
+	fs.StringVar(&o.author, "author", "@me", "prs: PR author")
+	fs.StringVar(&o.state, "state", "all", "prs: open|closed|merged|all")
+	fs.IntVar(&o.limit, "limit", 20, "prs: max PRs")
+	fs.BoolVar(&o.reviewDryRun, "review-dry-run", false, "serve: return the review payload instead of posting it to GitHub")
+	fs.BoolVar(&o.force, "force", false, "prs/-pr: re-run PRs that already have a cached result")
+
+	// The subcommand may come before or after the flags.
+	args, sub := os.Args[1:], ""
+	if len(args) > 0 && subcommands[args[0]] {
+		sub, args = args[0], args[1:]
+	}
+	_ = fs.Parse(args)
+	if sub == "" && subcommands[fs.Arg(0)] {
+		sub = fs.Arg(0)
+		_ = fs.Parse(fs.Args()[1:])
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	err = nil
+	switch sub {
+	case "eval":
+		err = runEval(ctx, o)
+	case "serve":
+		err = runServe(ctx, o)
+	case "prs":
+		err = runPRs(ctx, o)
+	case "index":
+		err = runIndex(ctx, o)
+	default:
+		err = runTriage(ctx, o)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "pr-triage:", err)
+		if err == errHuman {
+			os.Exit(2)
+		}
+		os.Exit(1)
+	}
+}
+
+var errHuman = fmt.Errorf("units need human review")
+
+// runIndex builds the code map from -code-root and -org.
+func runIndex(ctx context.Context, o options) error {
+	last := ""
+	res, err := indexSources(ctx, o, func(stage string, done, total int) {
+		if stage != last {
+			fmt.Fprintf(os.Stderr, "%s...\n", stage)
+			last = stage
+		}
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("linked %d, cloned %d, updated %d, failed %d; %d repos in the map at %s\n",
+		len(res.Linked), len(res.Cloned), len(res.Updated), len(res.Failed), res.Repos, o.codemapDir)
+	for _, f := range res.Failed {
+		fmt.Println("  failed:", f)
+	}
+	return nil
+}
+
+func runTriage(ctx context.Context, o options) error {
+	o = resolveProviders(o)
+	var report *triage.Report
+	if o.pr != "" {
+		ref, err := triage.ParsePRRef(o.pr)
+		if err != nil {
+			return err
+		}
+		t, err := newTriager(o)
+		if err != nil {
+			return err
+		}
+		r, err := t.Run(ctx, ref, jobOptions{Force: o.force}, func(string, int, int) {})
+		if err != nil {
+			return err
+		}
+		report = &triage.Report{Base: r.PR.BaseOid[:10], Head: r.PR.HeadOid[:10]}
+		for _, f := range r.Files {
+			for _, u := range f.Units {
+				report.Units = append(report.Units, u.Unit)
+			}
+		}
+		if err := triage.Rebucket(report.Units, r.tierPolicy(), o.reviewBudget); err != nil {
+			return err
+		}
+	} else {
+		var src *triage.Source
+		var err error
+		if o.diffFile != "" {
+			var raw string
+			if raw, err = readDiff(o.diffFile); err != nil {
+				return err
+			}
+			// Head file contents come from the working tree in -C.
+			src, err = triage.FromDiff(raw, o.dir, "")
+		} else {
+			src, err = triage.FromGit(o.dir, o.base, o.head)
+		}
+		if err != nil {
+			return err
+		}
+		policy, gitattrs, err := dirConfig(o)
+		if err != nil {
+			return err
+		}
+		pipe, err := buildPipeline(o, policy, gitattrs)
+		if err != nil {
+			return err
+		}
+		if m := loadCodeMap(o.codemapDir); m != nil {
+			pipe.CodeMap = &triage.CodeMap{Map: m, Repo: localRepoName(o)}
+		}
+		report = &triage.Report{Base: o.base, Head: o.head, Units: pipe.Run(ctx, src)}
+	}
+
+	w := io.Writer(os.Stdout)
+	if o.outFile != "" {
+		f, err := os.Create(o.outFile)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		w = f
+	}
+	if o.out == "json" {
+		if err := triage.RenderJSON(w, report); err != nil {
+			return err
+		}
+	} else {
+		triage.RenderMarkdown(w, report)
+	}
+	if o.failOnHuman && report.Counts()[triage.BucketHuman] > 0 {
+		return errHuman
+	}
+	return nil
+}
+
+func runEval(ctx context.Context, o options) error {
+	o = resolveProviders(o)
+	policy, gitattrs, err := dirConfig(o)
+	if err != nil {
+		return err
+	}
+	pipe, err := buildPipeline(o, policy, gitattrs)
+	if err != nil {
+		return err
+	}
+	cases, err := triage.LoadEvalCases(o.fixtures)
+	if err != nil {
+		return err
+	}
+	if len(cases) == 0 {
+		return fmt.Errorf("no *.json cases in %s", o.fixtures)
+	}
+	var judge *triage.Judge
+	if o.judge {
+		judge = &triage.Judge{Jev: &llm.OpenJev{BaseURL: o.openjevURL}}
+	}
+	res, err := triage.RunEval(ctx, pipe, cases, judge)
+	if err != nil {
+		return err
+	}
+	res.Print(os.Stdout)
+	return nil
+}
+
+// Default models per provider: a small fast model classifies, a stronger
+// one summarizes and reviews.
+var (
+	classifyDefaults = map[string]string{
+		"codex": llm.CodexSmall, "claude-code": llm.ClaudeCodeSmall,
+		llm.ClaudeAPI: llm.AnthropicClaudeHaiku45, llm.OpenAIAPI: llm.OpenAIGPT54Mini, "ollama": llm.OllamaQwen35_9B,
+		llm.Bedrock: llm.BedrockHaiku45, llm.Vertex: llm.VertexHaiku45, llm.Foundry: llm.FoundryHaiku45,
+		llm.AzureOpenAI: orDefault(os.Getenv("AZURE_OPENAI_CLASSIFY_DEPLOYMENT"), llm.OpenAIGPT54Mini),
+	}
+	summaryDefaults = map[string]string{
+		"codex": llm.CodexLarge, "claude-code": llm.ClaudeCodeLarge,
+		llm.ClaudeAPI: llm.AnthropicClaudeSonnet5, llm.OpenAIAPI: llm.OpenAIGPT6Sol, "ollama": llm.OllamaQwen35_9B,
+		llm.Bedrock: llm.BedrockSonnet5, llm.Vertex: llm.VertexSonnet5, llm.Foundry: llm.FoundrySonnet5,
+		llm.AzureOpenAI: orDefault(os.Getenv("AZURE_OPENAI_REVIEW_DEPLOYMENT"), llm.OpenAIGPT6Sol),
+	}
+)
+
+// resolveProviders replaces "auto" with the best provider that has
+// credentials and fills per-provider default models. A coding-agent
+// subscription on this machine comes first (Codex, then Claude Code), then
+// a cloud account the machine is explicitly set up for (Bedrock, Vertex AI,
+// Foundry, Azure OpenAI; see llm.ConfiguredCloud), then an API key (OpenAI,
+// then Anthropic), then local Ollama.
+func resolveProviders(o options) options {
+	auto := "ollama"
+	switch cloud := llm.ConfiguredCloud(); {
+	case llm.HasSubscription("codex"):
+		auto = "codex"
+	case llm.HasSubscription("claude-code"):
+		auto = "claude-code"
+	case cloud != "":
+		auto = cloud
+	case os.Getenv("OPENAI_API_KEY") != "":
+		auto = llm.OpenAIAPI
+	case os.Getenv("ANTHROPIC_API_KEY") != "":
+		auto = llm.ClaudeAPI
+	}
+	pick := func(p string) string {
+		if p == "auto" || p == "" {
+			return auto
+		}
+		return llm.ProviderID(p)
+	}
+	o.classifier, o.fallback, o.summarizer = pick(o.classifier), pick(o.fallback), pick(o.summarizer)
+	if o.classifyModel == "" {
+		o.classifyModel = classifyDefaults[o.classifier]
+	}
+	if o.fallbackModel == "" {
+		o.fallbackModel = classifyDefaults[o.fallback]
+	}
+	if o.summaryModel == "" {
+		o.summaryModel = summaryDefaults[o.summarizer]
+	}
+	return o
+}
+
+// dirConfig loads .triage.yaml and .gitattributes from the -C checkout.
+func dirConfig(o options) (triage.Policy, []string, error) {
+	policyFile := o.policy
+	if policyFile == "" {
+		policyFile = filepath.Join(o.dir, ".triage.yaml")
+	}
+	policy, err := triage.LoadPolicy(policyFile)
+	if err != nil {
+		return policy, nil, fmt.Errorf("policy %s: %w", policyFile, err)
+	}
+	return policy, triage.LoadGitattributesGenerated(filepath.Join(o.dir, ".gitattributes")), nil
+}
+
+// sourceConfig loads .triage.yaml and .gitattributes from the head revision.
+func sourceConfig(src *triage.Source) (triage.Policy, []string, error) {
+	policy := triage.DefaultPolicy()
+	if src.Content == nil {
+		return policy, nil, nil
+	}
+	if b, err := src.Content(".triage.yaml"); err == nil && len(b) > 0 {
+		p, err := triage.ParsePolicy(b)
+		if err != nil {
+			return policy, nil, fmt.Errorf(".triage.yaml: %w", err)
+		}
+		policy = p
+	}
+	var gitattrs []string
+	if b, err := src.Content(".gitattributes"); err == nil {
+		gitattrs = triage.ParseGitattributesGenerated(b)
+	}
+	return policy, gitattrs, nil
+}
+
+// buildPipeline expects resolved providers (see resolveProviders).
+func buildPipeline(o options, policy triage.Policy, gitattrs []string) (*triage.Pipeline, error) {
+	if o.reviewBudget != "" {
+		if _, _, err := policy.Tiers.Budget(o.reviewBudget); err != nil {
+			return nil, err
+		}
+		policy.Tiers.ReviewBudget = o.reviewBudget
+	}
+	pipe := &triage.Pipeline{
+		Presorter:         &triage.Presorter{Policy: policy, GitattributesGenerated: gitattrs},
+		Concurrency:       o.concurrency,
+		ReviewConcurrency: o.reviewConcurrency,
+	}
+	llmClassifier := func(provider, model string) (triage.Classifier, error) {
+		if provider == "off" {
+			return nil, nil
+		}
+		l, err := llm.New(provider, model)
+		if err != nil {
+			return nil, err
+		}
+		llm.SetEffort(l, o.classifyEffort)
+		return &triage.LLMClassifier{LLM: l, Policy: policy}, nil
+	}
+	var err error
+	switch o.classifier {
+	case "openjev":
+		fb, err := llmClassifier(o.fallback, o.fallbackModel)
+		if err != nil {
+			return nil, err
+		}
+		pipe.Classifier = &triage.JevClassifier{
+			Jev:      &llm.OpenJev{BaseURL: o.openjevURL},
+			Policy:   policy,
+			Fallback: fb,
+			Accept:   triage.DefaultJevAccept(),
+		}
+	default:
+		if pipe.Classifier, err = llmClassifier(o.classifier, o.classifyModel); err != nil {
+			return nil, err
+		}
+	}
+	if o.summarizer != "off" {
+		l, err := llm.New(o.summarizer, o.summaryModel)
+		if err != nil {
+			return nil, err
+		}
+		llm.SetEffort(l, o.reviewEffort)
+		pipe.Summarizer = &triage.Summarizer{LLM: l, Policy: policy, Tools: o.reviewTools, Language: o.summaryLang}
+	}
+	pipe.Warn = func(msg string) { fmt.Fprintln(os.Stderr, "pr-triage:", msg) }
+	return pipe, nil
+}
+
+var (
+	codeMapMu     sync.Mutex
+	codeMapLoaded bool
+	codeMap       *codemap.Map
+)
+
+// loadCodeMap opens the code map once per process (again after
+// reloadCodeMap). A missing map only disables impact and file history; triage still
+// works.
+func loadCodeMap(dir string) *codemap.Map {
+	codeMapMu.Lock()
+	defer codeMapMu.Unlock()
+	if !codeMapLoaded {
+		codeMap, codeMapLoaded = openCodeMap(dir), true
+	}
+	return codeMap
+}
+
+// reloadCodeMap drops the open map so the next load reads a rebuilt one.
+func reloadCodeMap(dir string) *codemap.Map {
+	codeMapMu.Lock()
+	codeMapLoaded = false
+	codeMapMu.Unlock()
+	return loadCodeMap(dir)
+}
+
+func openCodeMap(dir string) *codemap.Map {
+	if dir == "" || dir == "off" {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(dir, "meta.json")); err != nil && !filepath.IsAbs(dir) {
+		// Relative to the binary, so a pr-triage run from elsewhere finds it.
+		if exe, err := os.Executable(); err == nil {
+			if alt := filepath.Join(filepath.Dir(exe), dir); fileExists(filepath.Join(alt, "meta.json")) {
+				dir = alt
+			}
+		}
+	}
+	m, err := codemap.Open(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "pr-triage: code map disabled: %v\n", err)
+		return nil
+	}
+	return m
+}
+
+// codeMapVersion goes into result cache keys so a rebuilt map re-triages.
+func codeMapVersion(m *codemap.Map) string {
+	if m == nil {
+		return "nomap"
+	}
+	return m.Meta.GeneratedAt
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+// localRepoName is the map repo for -C runs: -map-repo, else the checkout's
+// directory name.
+func localRepoName(o options) string {
+	if o.mapRepo != "" {
+		return o.mapRepo
+	}
+	top, err := triage.Git(o.dir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		abs, _ := filepath.Abs(o.dir)
+		return filepath.Base(abs)
+	}
+	return filepath.Base(strings.TrimSpace(top))
+}
+
+func readDiff(path string) (string, error) {
+	var b []byte
+	var err error
+	if path == "-" {
+		b, err = io.ReadAll(os.Stdin)
+	} else {
+		b, err = os.ReadFile(path)
+	}
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}

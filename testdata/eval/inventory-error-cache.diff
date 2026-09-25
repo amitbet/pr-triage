@@ -1,0 +1,285 @@
+diff --git a/store/client.go b/store/client.go
+index 21c2908..e1f086c 100644
+--- a/store/client.go
++++ b/store/client.go
+@@ -1,20 +1,27 @@
+ package store
+ 
+ import (
+ 	"context"
++	"errors"
+ 	"fmt"
++	"log"
+ 	"os"
+ 	"strconv"
+ 	"strings"
+ 	"time"
+ )
+ 
+ var (
+ 	requestTimeout = time.Second
+ 	inventory      = NewClient(inventoryAddr())
+ 
++	// How long a failed record lookup is remembered before the server is asked
++	// again. Some records are permanently forbidden to this service, so asking
++	// on every Track call only burns connections.
++	errorCacheTTL = 5 * time.Minute
++
+ 	systemPrefixes = []string{
+ 		"sys-",
+ 		"internal-",
+ 		"probe-",
+ 		"healthcheck",
+@@ -29,21 +36,35 @@ var (
+ 		"cron-",
+ 		"sidecar-",
+ 	}
+ )
+ 
++type cachedError struct {
++	err       error
++	expiresAt time.Time
++}
++
+ type Client struct {
+-	addr  string
+-	conn  *Conn
+-	cache map[string]map[string]string
++	addr   string
++	conn   *Conn
++	cache  map[string]map[string]string
++	errors map[string]cachedError
++
++	// overridable in tests
++	get func(ctx context.Context, key string) (map[string]string, error)
++	now func() time.Time
+ }
+ 
+ func NewClient(addr string) *Client {
+-	return &Client{
+-		addr:  addr,
+-		cache: map[string]map[string]string{},
++	c := &Client{
++		addr:   addr,
++		cache:  map[string]map[string]string{},
++		errors: map[string]cachedError{},
++		now:    time.Now,
+ 	}
++	c.get = c.fetchFromServer
++	return c
+ }
+ 
+ func inventoryAddr() string {
+ 	if a := os.Getenv("INVENTORY_ADDR"); a != "" {
+ 		return a
+@@ -67,30 +88,53 @@ func (c *Client) connect() error {
+ 		return fmt.Errorf("failed to connect to inventory at %s: %w", c.addr, err)
+ 	}
+ 	return nil
+ }
+ 
+-func (c *Client) GetRecord(ctx context.Context, key string, retry bool) (map[string]string, error) {
++func (c *Client) GetRecord(ctx context.Context, key string) (map[string]string, error) {
+ 	if res, ok := c.cache[key]; ok {
+ 		return res, nil
+ 	}
+-	if c.conn == nil {
+-		if err := c.connect(); err != nil {
+-			return nil, err
++	if e, ok := c.errors[key]; ok {
++		if c.now().Before(e.expiresAt) {
++			return nil, e.err
+ 		}
++		delete(c.errors, key)
+ 	}
+-	res, err := c.conn.Get(ctx, key)
+-	switch {
+-	case err == nil:
+-		c.cache[key] = res
+-		return res, nil
+-	case retry:
+-		c.close()
+-		return c.GetRecord(ctx, key, false)
+-	default:
++	res, err := c.get(ctx, key)
++	if err != nil {
++		log.Printf("failed to get inventory record %s, not retrying for %s: %s", key, errorCacheTTL, err)
++		c.errors[key] = cachedError{err: err, expiresAt: c.now().Add(errorCacheTTL)}
+ 		return nil, err
+ 	}
++	c.cache[key] = res
++	return res, nil
++}
++
++func (c *Client) fetchFromServer(ctx context.Context, key string) (map[string]string, error) {
++	for attempt := 0; ; attempt++ {
++		if c.conn == nil {
++			if err := c.connect(); err != nil {
++				return nil, err
++			}
++		}
++		res, err := c.conn.Get(ctx, key)
++		if err == nil {
++			return res, nil
++		}
++		// An error reply (e.g. FORBIDDEN) means the connection is healthy and
++		// the server answered: reconnecting would only get the same answer.
++		if attempt > 0 || isErrorReply(err) {
++			return nil, err
++		}
++		c.close()
++	}
++}
++
++func isErrorReply(err error) bool {
++	var e ReplyError
++	return errors.As(err, &e)
+ }
+ 
+ type Record struct {
+ 	Key     string
+ 	Owner   string
+@@ -117,11 +161,11 @@ func getRecord(id string) (Record, error) {
+ 		}
+ 	}
+ 	if rec.Key == "" {
+ 		rec.Key = parts[len(parts)-1]
+ 	}
+-	fields, err := inventory.GetRecord(ctx, rec.Key, true)
++	fields, err := inventory.GetRecord(ctx, rec.Key)
+ 	if err != nil {
+ 		return rec, fmt.Errorf("failed to get inventory record: %w", err)
+ 	}
+ 	rec.Owner = fields["owner"]
+ 	if v, ok := fields["version"]; ok {
+diff --git a/store/loader.go b/store/loader.go
+index 76def90..f26520c 100644
+--- a/store/loader.go
++++ b/store/loader.go
+@@ -76,14 +76,15 @@ func (l *Loader) IDs() []string {
+ }
+ 
+ func loadMetadata(it *Item) (*Metadata, error) {
+ 	switch it.Kind {
+ 	case KindRecord:
+-		var err error
+ 		md := &Metadata{}
+-		md.record, err = getRecord(it.ID)
+-		return md, err
++		// The record only refines who owns the item, so a failed lookup (logged
++		// and cached by the client) shouldn't stop the item from being tracked.
++		md.record, _ = getRecord(it.ID)
++		return md, nil
+ 	case KindBlob, KindLink:
+ 	default:
+ 		return &Metadata{}, nil
+ 	}
+ 	blob := blobID(it.ID)
+diff --git a/store/client_test.go b/store/client_test.go
+new file mode 100644
+index 0000000..77ad9b3
+--- /dev/null
++++ b/store/client_test.go
+@@ -0,0 +1,102 @@
++package store
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"testing"
++	"time"
++)
++
++func newTestClient(get func(ctx context.Context, key string) (map[string]string, error)) (*Client, *time.Time) {
++	now := time.Unix(1_700_000_000, 0)
++	c := NewClient("127.0.0.1:0")
++	c.get = get
++	c.now = func() time.Time { return now }
++	return c, &now
++}
++
++func TestClientCachesFailures(t *testing.T) {
++	forbidden := ReplyError{Code: "FORBIDDEN", Message: "record is not visible to this service"}
++	calls := 0
++	c, now := newTestClient(func(ctx context.Context, key string) (map[string]string, error) {
++		calls++
++		return nil, forbidden
++	})
++
++	for i := 0; i < 100; i++ {
++		if _, err := c.GetRecord(context.Background(), "orders"); err != forbidden {
++			t.Fatalf("err = %v", err)
++		}
++	}
++	if calls != 1 {
++		t.Fatalf("a failed lookup must not be repeated on every call: %d calls", calls)
++	}
++
++	*now = now.Add(errorCacheTTL - time.Second)
++	_, _ = c.GetRecord(context.Background(), "orders")
++	if calls != 1 {
++		t.Fatalf("calls = %d before the TTL", calls)
++	}
++
++	*now = now.Add(2 * time.Second)
++	_, _ = c.GetRecord(context.Background(), "orders")
++	if calls != 2 {
++		t.Fatalf("the lookup is retried once the TTL has expired: %d calls", calls)
++	}
++
++	_, _ = c.GetRecord(context.Background(), "invoices")
++	if calls != 3 {
++		t.Fatalf("failures are cached per key: %d calls", calls)
++	}
++}
++
++func TestClientCachesSuccesses(t *testing.T) {
++	calls := 0
++	c, _ := newTestClient(func(ctx context.Context, key string) (map[string]string, error) {
++		calls++
++		return map[string]string{"owner": "team-a"}, nil
++	})
++	for i := 0; i < 10; i++ {
++		res, err := c.GetRecord(context.Background(), "orders")
++		if err != nil || res["owner"] != "team-a" {
++			t.Fatalf("res = %v, err = %v", res, err)
++		}
++	}
++	if calls != 1 {
++		t.Fatalf("calls = %d", calls)
++	}
++}
++
++func TestIsErrorReply(t *testing.T) {
++	forbidden := ReplyError{Code: "FORBIDDEN"}
++	for _, tc := range []struct {
++		err  error
++		want bool
++	}{
++		{forbidden, true},
++		{fmt.Errorf("wrapped: %w", forbidden), true},
++		{errors.New("connection reset by peer"), false},
++		{context.DeadlineExceeded, false},
++	} {
++		if got := isErrorReply(tc.err); got != tc.want {
++			t.Errorf("isErrorReply(%v) = %v", tc.err, got)
++		}
++	}
++}
++
++func TestLoadMetadataFallsBackOnLookupError(t *testing.T) {
++	orig := inventory
++	defer func() { inventory = orig }()
++	inventory, _ = newTestClient(func(ctx context.Context, key string) (map[string]string, error) {
++		return nil, ReplyError{Code: "FORBIDDEN"}
++	})
++
++	md, err := loadMetadata(&Item{ID: "/tenants/rec-orders", Kind: KindRecord})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if md.record.Key != "orders" || md.record.IsSystem() {
++		t.Errorf("record = %+v", md.record)
++	}
++}

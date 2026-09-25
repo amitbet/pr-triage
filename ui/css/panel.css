@@ -1,0 +1,12 @@
+/* Submit-review panel. */
+#review-btn .pill { margin-left: 4px; }
+.panel { position: fixed; top: 60px; right: 16px; width: 440px; max-height: calc(100vh - 80px); overflow: auto; z-index: 30; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.2); padding: 14px; }
+.panel h3 { margin: 0 0 8px; font-size: 16px; }
+.panel textarea { width: 100%; min-height: 90px; resize: vertical; }
+.panel .ev { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; font-size: 14px; }
+.panel .ev small { color: var(--muted); margin-left: 22px; display: block; }
+.panel .dl { font-size: 13px; margin: 8px 0; border-top: 1px solid var(--border); }
+.panel .dl a { display: block; padding: 4px 0; border-bottom: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel .msg { margin-top: 8px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.panel .msg.err { color: var(--human); }
+.panel pre { font-size: 11px; background: var(--bg2); padding: 8px; border-radius: 6px; overflow: auto; max-height: 240px; }

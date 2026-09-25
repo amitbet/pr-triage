@@ -1,0 +1,458 @@
+package llm
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+)
+
+// Coding-agent subscriptions: instead of an API key, spawn the locally
+// logged-in Codex CLI (ChatGPT plan) or Claude Code CLI (Claude plan) on this
+// machine in one-shot structured-output mode, the same way t3code generates
+// commit messages. The CLIs keep their own credentials; API keys are removed
+// from their environment so a key in .env never overrides the subscription.
+
+// Subscription model presets.
+const (
+	CodexSmall      = "gpt-6-luna"
+	CodexLarge      = OpenAIGPT6Sol
+	ClaudeCodeSmall = "claude-haiku-4-5"
+	ClaudeCodeLarge = AnthropicClaudeOpus55
+)
+
+const cliTimeout = 5 * time.Minute
+
+// CodexCLI runs `codex exec` with --output-schema.
+type CodexCLI struct {
+	Model  string
+	Effort string // model_reasoning_effort: low|medium|high|xhigh ('' = model default)
+	Binary string // default "codex"
+}
+
+func (c *CodexCLI) ModelID() string {
+	if c.Model == "" {
+		return CodexSmall
+	}
+	return c.Model
+}
+
+func (c *CodexCLI) Name() string { return "codex" }
+
+func (c *CodexCLI) Call(ctx context.Context, req LLMRequest) (*LLMResponse, error) {
+	tool, err := cliTool(req)
+	if err != nil {
+		return nil, err
+	}
+	dir, err := os.MkdirTemp("", "pr-triage-codex-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	schema, err := json.Marshal(strictSchema(tool.InputSchema))
+	if err != nil {
+		return nil, err
+	}
+	schemaPath := filepath.Join(dir, "schema.json")
+	if err := os.WriteFile(schemaPath, schema, 0o600); err != nil {
+		return nil, err
+	}
+	args := []string{
+		"exec", "--json", "--ephemeral", "--skip-git-repo-check",
+		"--ignore-user-config", "--ignore-rules", "-s", "read-only",
+		"--model", c.ModelID(), "--output-schema", schemaPath,
+	}
+	if effort := codexEffort(c.Effort); effort != "" {
+		args = append(args, "--config", fmt.Sprintf("model_reasoning_effort=%q", effort))
+	}
+	// The read-only sandbox already lets it read anywhere; -C only sets
+	// where it starts.
+	cwd := dir
+	if ws := req.Workspace; ws != nil {
+		cwd = ws.Dir
+		args = append(args, "-C", ws.Dir)
+	}
+	args = append(args, "-")
+	system, prompt := cliPrompt(req.Messages, tool, req.Workspace != nil)
+	if system != "" {
+		prompt = system + "\n\n" + prompt
+	}
+	out, err := runCLI(ctx, orDefault(c.Binary, "codex"), args, cwd, prompt, "OPENAI_API_KEY", "CODEX_API_KEY")
+	if err != nil {
+		return nil, fmt.Errorf("codex/%s: %w", c.ModelID(), err)
+	}
+	// --json prints one event per line; the answer is the last agent message.
+	var text string
+	var usage Usage
+	for _, line := range strings.Split(string(out), "\n") {
+		var ev struct {
+			Type string `json:"type"`
+			Item struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"item"`
+			Usage struct {
+				InputTokens  int `json:"input_tokens"`
+				OutputTokens int `json:"output_tokens"`
+			} `json:"usage"`
+			Message string `json:"message"`
+			Error   struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal([]byte(line), &ev) != nil {
+			continue
+		}
+		switch ev.Type {
+		case "item.completed":
+			if ev.Item.Type == "agent_message" {
+				text = ev.Item.Text
+			}
+		case "turn.completed":
+			usage.InputTokens += ev.Usage.InputTokens
+			usage.OutputTokens += ev.Usage.OutputTokens
+		case "turn.failed", "error":
+			return nil, fmt.Errorf("codex/%s: %s%s", c.ModelID(), ev.Message, ev.Error.Message)
+		}
+	}
+	return structuredResponse(tool, text, nil, usage)
+}
+
+func codexEffort(e string) string {
+	switch e {
+	case "", "none":
+		return ""
+	case "minimal":
+		return "low" // subscription models start at low
+	}
+	return e
+}
+
+// ClaudeCodeCLI runs `claude -p` with --json-schema.
+type ClaudeCodeCLI struct {
+	Model  string
+	Effort string // --effort: low|medium|high|xhigh|max ('' = model default)
+	Binary string // default "claude"
+}
+
+func (c *ClaudeCodeCLI) ModelID() string {
+	if c.Model == "" {
+		return ClaudeCodeSmall
+	}
+	return c.Model
+}
+
+func (c *ClaudeCodeCLI) Name() string { return "claude-code" }
+
+func (c *ClaudeCodeCLI) Call(ctx context.Context, req LLMRequest) (*LLMResponse, error) {
+	tool, err := cliTool(req)
+	if err != nil {
+		return nil, err
+	}
+	dir, err := os.MkdirTemp("", "pr-triage-claude-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	schema, err := json.Marshal(tool.InputSchema)
+	if err != nil {
+		return nil, err
+	}
+	system, prompt := cliPrompt(req.Messages, tool, req.Workspace != nil)
+	tools, cwd := "", dir
+	if ws := req.Workspace; ws != nil {
+		tools, cwd = readOnlyTools, ws.Dir
+	}
+	args := []string{
+		"-p", "--output-format", "json", "--json-schema", string(schema),
+		"--model", c.ModelID(), "--tools", tools, "--disable-slash-commands",
+		"--strict-mcp-config", "--permission-mode", "dontAsk",
+		"--no-session-persistence", "--settings", `{"disableAllHooks":true}`,
+	}
+	if ws := req.Workspace; ws != nil {
+		// dontAsk denies anything not allowed up front.
+		args = append(args, "--allowedTools", readOnlyTools)
+		for _, d := range ws.ReadDirs {
+			args = append(args, "--add-dir", d)
+		}
+	}
+	if system != "" {
+		args = append(args, "--system-prompt", system)
+	}
+	// Haiku has no effort setting.
+	if e := c.Effort; e != "" && e != "none" && !strings.Contains(c.ModelID(), "haiku") {
+		if e == "minimal" {
+			e = "low"
+		}
+		args = append(args, "--effort", e)
+	}
+	out, err := runCLI(ctx, orDefault(c.Binary, "claude"), args, cwd, prompt, "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+	if err != nil {
+		return nil, fmt.Errorf("claude-code/%s: %w", c.ModelID(), err)
+	}
+	var res struct {
+		IsError          bool           `json:"is_error"`
+		Result           string         `json:"result"`
+		StructuredOutput map[string]any `json:"structured_output"`
+		Usage            struct {
+			InputTokens              int `json:"input_tokens"`
+			OutputTokens             int `json:"output_tokens"`
+			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(out, &res); err != nil {
+		return nil, fmt.Errorf("claude-code/%s: decode output: %w", c.ModelID(), err)
+	}
+	if res.IsError {
+		return nil, fmt.Errorf("claude-code/%s: %s", c.ModelID(), res.Result)
+	}
+	usage := Usage{
+		InputTokens:  res.Usage.InputTokens + res.Usage.CacheCreationInputTokens + res.Usage.CacheReadInputTokens,
+		OutputTokens: res.Usage.OutputTokens,
+	}
+	return structuredResponse(tool, res.Result, res.StructuredOutput, usage)
+}
+
+// cliTool returns the tool whose arguments the CLI's structured output
+// stands in for. Only forced single-tool calls (CallTool) are supported.
+func cliTool(req LLMRequest) (ToolDefinition, error) {
+	if len(req.Tools) == 0 || req.ToolChoice != ToolChoiceRequired {
+		return ToolDefinition{}, fmt.Errorf("subscription CLIs only support forced tool calls")
+	}
+	return req.Tools[0], nil
+}
+
+// readOnlyTools are the Claude Code tools a workspace call gets.
+const readOnlyTools = "Read,Grep,Glob"
+
+// cliPrompt flattens the chat into a system prompt and one user prompt.
+// canRead says whether the CLI was given a workspace to read.
+func cliPrompt(msgs []ChatMessage, tool ToolDefinition, canRead bool) (string, string) {
+	var system []string
+	var sb strings.Builder
+	for _, m := range msgs {
+		switch m.Role {
+		case "system":
+			system = append(system, m.Content)
+		case "assistant":
+			fmt.Fprintf(&sb, "<assistant>\n%s\n</assistant>\n\n", m.Content)
+		default:
+			sb.WriteString(m.Content + "\n\n")
+		}
+	}
+	if canRead {
+		fmt.Fprintf(&sb, "%s Read files if you need to, but do not change anything. Answer only with the JSON object.", tool.Description)
+	} else {
+		fmt.Fprintf(&sb, "%s Answer only with the JSON object; do not run commands or read files.", tool.Description)
+	}
+	return strings.Join(system, "\n\n"), sb.String()
+}
+
+// structuredResponse turns the CLI's JSON answer into a call to tool. Nulls
+// are dropped so fields strictSchema made nullable look omitted, as they do
+// from the API providers.
+func structuredResponse(tool ToolDefinition, text string, args map[string]any, usage Usage) (*LLMResponse, error) {
+	if args == nil {
+		if err := json.Unmarshal([]byte(extractJSON(text)), &args); err != nil {
+			return nil, fmt.Errorf("no JSON answer: %q", truncate(text, 200))
+		}
+	}
+	return &LLMResponse{
+		ToolCalls:  []ToolCall{{Name: tool.Name, Arguments: dropNulls(args).(map[string]any)}},
+		StopReason: StopToolUse,
+		Usage:      usage,
+	}, nil
+}
+
+func extractJSON(s string) string {
+	s = strings.TrimSpace(s)
+	if i, j := strings.Index(s, "{"), strings.LastIndex(s, "}"); i >= 0 && j > i {
+		return s[i : j+1]
+	}
+	return s
+}
+
+func dropNulls(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, x := range t {
+			if x == nil {
+				delete(t, k)
+			} else {
+				t[k] = dropNulls(x)
+			}
+		}
+	case []any:
+		for i, x := range t {
+			t[i] = dropNulls(x)
+		}
+	}
+	return v
+}
+
+// strictSchema rewrites a schema for OpenAI strict structured output, which
+// Codex uses: every object closes with additionalProperties=false and lists
+// all its properties as required, so optional ones become nullable.
+func strictSchema(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(t)+2)
+		for k, x := range t {
+			out[k] = strictSchema(x)
+		}
+		props, ok := out["properties"].(map[string]any)
+		if !ok {
+			return out
+		}
+		required := map[string]bool{}
+		switch r := t["required"].(type) {
+		case []string:
+			for _, k := range r {
+				required[k] = true
+			}
+		case []any:
+			for _, k := range r {
+				required[fmt.Sprint(k)] = true
+			}
+		}
+		all := make([]string, 0, len(props))
+		for k, p := range props {
+			all = append(all, k)
+			if pm, ok := p.(map[string]any); ok && !required[k] {
+				props[k] = nullable(pm)
+			}
+		}
+		out["required"] = all
+		out["additionalProperties"] = false
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i, x := range t {
+			out[i] = strictSchema(x)
+		}
+		return out
+	}
+	return v
+}
+
+func nullable(p map[string]any) map[string]any {
+	out := make(map[string]any, len(p))
+	for k, v := range p {
+		out[k] = v
+	}
+	if typ, ok := p["type"].(string); ok {
+		out["type"] = []any{typ, "null"}
+		if enum, ok := p["enum"].([]string); ok {
+			e := make([]any, 0, len(enum)+1)
+			for _, s := range enum {
+				e = append(e, s)
+			}
+			out["enum"] = append(e, nil)
+		}
+	}
+	return out
+}
+
+// runCLI runs bin in dir with prompt on stdin and the given env vars unset,
+// and returns stdout.
+func runCLI(ctx context.Context, bin string, args []string, dir, prompt string, unset ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, cliTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Dir = dir
+	cmd.Env = cliEnv(unset...)
+	cmd.Stdin = strings.NewReader(prompt)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = strings.TrimSpace(stdout.String())
+		}
+		return nil, fmt.Errorf("%v: %s", err, truncate(msg, 500))
+	}
+	return stdout.Bytes(), nil
+}
+
+func cliEnv(unset ...string) []string {
+	drop := map[string]bool{}
+	for _, k := range unset {
+		drop[k] = true
+	}
+	env := []string{"CLAUDE_CODE_AUTO_CONNECT_IDE=0", "ENABLE_CLAUDEAI_MCP_SERVERS=false"}
+	for _, kv := range os.Environ() {
+		if k, _, _ := strings.Cut(kv, "="); !drop[k] {
+			env = append(env, kv)
+		}
+	}
+	return env
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
+func orDefault(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
+}
+
+var (
+	subsOnce sync.Once
+	subsHave map[string]bool
+)
+
+// HasSubscription reports whether provider ("codex" or "claude-code") is
+// installed on this machine and logged in with a subscription rather than an
+// API key. The CLIs are probed once per process.
+func HasSubscription(provider string) bool {
+	subsOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		var wg sync.WaitGroup
+		var codex, claude bool
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			// "Logged in using ChatGPT" vs "Logged in using an API key".
+			out, err := probe(ctx, "codex", "login", "status")
+			codex = err == nil && strings.Contains(out, "ChatGPT")
+		}()
+		go func() {
+			defer wg.Done()
+			out, err := probe(ctx, "claude", "auth", "status")
+			var st struct {
+				LoggedIn         bool   `json:"loggedIn"`
+				AuthMethod       string `json:"authMethod"`
+				SubscriptionType string `json:"subscriptionType"`
+			}
+			claude = err == nil && json.Unmarshal([]byte(extractJSON(out)), &st) == nil &&
+				st.LoggedIn && (st.AuthMethod == "claude.ai" || st.SubscriptionType != "")
+		}()
+		wg.Wait()
+		subsHave = map[string]bool{"codex": codex, "claude-code": claude}
+	})
+	return subsHave[provider]
+}
+
+func probe(ctx context.Context, bin string, args ...string) (string, error) {
+	if _, err := exec.LookPath(bin); err != nil {
+		return "", err
+	}
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Env = cliEnv("OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}

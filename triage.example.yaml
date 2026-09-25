@@ -1,0 +1,25 @@
+# Copy to <repo>/.triage.yaml. Lists are appended to the built-in defaults
+# (see triage/policy.go DefaultPolicy).
+generated:
+  - "api/openapi/*.gen.go"
+force_human:
+  - "internal/billing/**"
+  - "pkg/recommendation/**"
+thresholds:
+  none: 0.9      # min confidence to accept "none", else -> summary
+  summary: 0.7   # min confidence to accept "summary", else -> human
+max_unit_chars: 24000
+# Other units' diffs shown with each unit in the review prompt, most related first.
+review_context_chars: 32000
+# Buckets come from one score per unit (see README, Tiers):
+#   prior = sqrt(impact x likelihood) x change-kind weight
+#   score = max(review attention, prior x (1 - trust)) after a clean review
+# The review budget picks how much a clean review is trusted and the cut-offs.
+tiers:
+  review_budget: balanced     # most | more | balanced | less | least (-review-budget overrides)
+  # Override single fields of a step:
+  # budgets:
+  #   balanced: { trust: 0.3, human: 40, summary: 15 }
+  #   least:    { trust: 0.6, human: 50, summary: 20 }
+  # kind_weights: { test: 0.8, refactor: 0.6 }
+  critical_impact: 85         # units at or above always go to human (0: off)

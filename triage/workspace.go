@@ -1,0 +1,68 @@
+package triage
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+
+	"github.com/amitbet/pr-triage/llm"
+)
+
+// reviewWorkspace gives the reviewer the repository at the PR head: the
+// saved head directory when there is one, else a detached git worktree of
+// src.Head (removed by the returned cleanup). Go repos also get the module
+// cache so library behavior can be checked instead of guessed. nil when
+// neither is available.
+func reviewWorkspace(src *Source) (*llm.Workspace, func(), error) {
+	noop := func() {}
+	var ws *llm.Workspace
+	cleanup := noop
+	switch {
+	case src.HeadDir != "":
+		ws = &llm.Workspace{Dir: src.HeadDir}
+	case src.Dir != "" && src.Head != "":
+		dir, err := os.MkdirTemp("", "pr-triage-head-")
+		if err != nil {
+			return nil, noop, err
+		}
+		if _, err := Git(src.Dir, "worktree", "add", "--detach", dir, src.Head); err != nil {
+			os.RemoveAll(dir)
+			return nil, noop, err
+		}
+		ws = &llm.Workspace{Dir: dir}
+		cleanup = func() {
+			_, _ = Git(src.Dir, "worktree", "remove", "--force", dir)
+			os.RemoveAll(dir)
+		}
+	default:
+		return nil, noop, nil
+	}
+	if _, err := os.Stat(filepath.Join(ws.Dir, "go.mod")); err == nil {
+		if mc := goModCache(); mc != "" {
+			ws.ReadDirs = append(ws.ReadDirs, mc)
+		}
+	}
+	return ws, cleanup, nil
+}
+
+var (
+	modCacheOnce sync.Once
+	modCache     string
+)
+
+// goModCache is `go env GOMODCACHE`, or "" without Go or the directory.
+func goModCache() string {
+	modCacheOnce.Do(func() {
+		out, err := exec.Command("go", "env", "GOMODCACHE").Output()
+		if err != nil {
+			return
+		}
+		dir := strings.TrimSpace(string(out))
+		if st, err := os.Stat(dir); err == nil && st.IsDir() {
+			modCache = dir
+		}
+	})
+	return modCache
+}

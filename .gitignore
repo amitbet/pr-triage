@@ -1,0 +1,15 @@
+/pr-triage
+triage.json
+triage.md
+/.cache/
+
+# never commit credentials
+.env
+.env.*
+!.env.example
+*.keys
+*.keys.*
+*.pem
+
+# Release archives and generated package manifests
+/dist/

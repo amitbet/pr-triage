@@ -1,0 +1,60 @@
+// Sidebar: triaged PRs, latest result per PR, grouped by repo.
+import { $, esc, api, pills } from "./util.js";
+import { S, repoName } from "./state.js";
+import { impactPill, likelihoodPill } from "./scores.js";
+
+// Collapsed repo sections, remembered across reloads.
+const collapsedRepos = new Set(JSON.parse(localStorage.getItem("pr-triage.collapsedRepos") || "[]"));
+const saveCollapsedRepos = () => localStorage.setItem("pr-triage.collapsedRepos", JSON.stringify([...collapsedRepos]));
+
+let onPick = () => {};
+
+// initSidebar sets what happens when a PR is picked (its result key).
+export function initSidebar(pick) {
+  onPick = pick;
+  $("#list").addEventListener("click", (e) => {
+    const item = e.target.closest(".pr-item");
+    if (item) { onPick(item.dataset.key); return; }
+    const head = e.target.closest(".repo-head");
+    if (!head) return;
+    const repo = head.dataset.repo;
+    const sec = head.parentElement;
+    const collapse = !sec.classList.contains("collapsed");
+    sec.classList.toggle("collapsed", collapse);
+    head.querySelector(".caret").textContent = collapse ? "▸" : "▾";
+    collapse ? collapsedRepos.add(repo) : collapsedRepos.delete(repo);
+    saveCollapsedRepos();
+  });
+}
+
+export async function loadList() {
+  const list = await api("/api/results");
+  const seen = new Set();
+  const repos = new Map();
+  for (const r of list) {
+    const repo = repoName(r.pr);
+    if (seen.has(`${repo}#${r.pr.number}`)) continue;
+    seen.add(`${repo}#${r.pr.number}`);
+    if (!repos.has(repo)) repos.set(repo, []);
+    repos.get(repo).push(r);
+  }
+  const current = S.result ? repoName(S.result.pr) : null;
+  $("#list").innerHTML = [...repos.keys()].sort().map((repo) => {
+    const prs = repos.get(repo);
+    const open = !collapsedRepos.has(repo) || repo === current;
+    const human = prs.reduce((n, r) => n + (r.counts?.human || 0), 0);
+    return `
+    <div class="repo ${open ? "" : "collapsed"}">
+      <button class="repo-head" data-repo="${esc(repo)}">
+        <span class="caret">${open ? "▾" : "▸"}</span>
+        <span class="rn" title="${esc(repo)}">${esc(repo)}</span>
+        <span class="rc" title="${prs.length} PRs, ${human} units need human review">${prs.length}</span>
+      </button>
+      <div class="repo-prs">${prs.map((r) => `
+        <a class="pr-item ${S.result?.key === r.key ? "active" : ""}" data-key="${esc(r.key)}">
+          <span class="t">#${r.pr.number} ${esc(r.title)}</span>
+          <span class="m">${pills(r.counts)} ${r.impact ? impactPill(r.impact, "imp") : ""}${r.likelihood ? likelihoodPill(r.likelihood, "lik") : ""} <span>${esc(r.state.toLowerCase())}</span> <span title="${esc(r.classifier)}">· ${esc(r.classifier.split("/").pop())}</span></span>
+        </a>`).join("")}</div>
+    </div>`;
+  }).join("") || `<div class="empty">none yet</div>`;
+}

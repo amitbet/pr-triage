@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pr-triage</title>
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/review.css">
+<link rel="stylesheet" href="css/diff.css">
+<link rel="stylesheet" href="css/walkthrough.css">
+<link rel="stylesheet" href="css/treemap.css">
+<link rel="stylesheet" href="css/panel.css">
+</head>
+<body>
+<header>
+  <h1>pr-triage</h1>
+  <input id="url" placeholder="https://github.com/owner/repo/pull/123 (or a GitHub Enterprise PR)" spellcheck="false">
+  <button id="go" class="primary">Triage</button>
+  <label class="rerun"><input type="checkbox" id="force"> re-run</label>
+  <button id="settings-btn" class="icon" title="Settings" aria-label="Settings" aria-haspopup="dialog">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </button>
+  <span id="settings-line" class="settings-line"></span>
+  <button id="review-btn" hidden>Review</button>
+</header>
+<div class="layout">
+  <aside>
+    <h2>Triaged PRs</h2>
+    <div id="list"></div>
+  </aside>
+  <main id="main"><div class="empty">Paste a PR link above, or pick a triaged PR on the left.</div></main>
+</div>
+<div id="panel" class="panel" hidden></div>
+<dialog id="settings" class="settings-dlg" aria-labelledby="settings-title">
+  <form method="dialog">
+    <div class="dlg-head"><h3 id="settings-title">Settings</h3><button class="icon" value="close" aria-label="Close">✕</button></div>
+    <section>
+      <h4>Models <button type="button" id="providers-refresh" class="linkbtn">refresh list</button></h4>
+      <div class="grid">
+        <span>Classifier</span>
+        <select id="classifier" aria-label="classifier provider"><option value="">default</option></select>
+        <select id="classify_model" aria-label="classifier model"><option value="">default model</option></select>
+        <span>Summarizer</span>
+        <select id="summarizer" aria-label="summarizer provider"><option value="">default</option></select>
+        <select id="summary_model" aria-label="summarizer model"><option value="">default model</option></select>
+      </div>
+      <p class="hint">Used by the next triage. A different model gives a different cached result.</p>
+    </section>
+    <section>
+      <h4>Code map</h4>
+      <div class="grid codemap-src">
+        <label for="code_root">Local code directory</label>
+        <input id="code_root" spellcheck="false" placeholder="~/code (git checkouts in DIR/repo or DIR/org/repo)">
+        <label for="org">GitHub org</label>
+        <input id="org" spellcheck="false" placeholder="acme, or https://ghe.example.com/platform">
+      </div>
+      <div class="codemap-actions"><button type="button" id="index-btn">Index now</button> <span id="index-status" class="hint"></span></div>
+      <p class="hint">Impact scores come from a map of your repos. Index now links the checkouts in the local directory (indexed as they are on disk, including uncommitted changes) and clones the org's other repos, then rebuilds the map; only repos that changed are re-read. A PR from a repo that isn't in the map is added when it's triaged: linked from the local directory, else cloned. Cross-repo impact only counts repos in the map, so index the whole org. The server defaults are <code>PR_TRIAGE_CODE_ROOT</code> and <code>PR_TRIAGE_ORG</code>.</p>
+    </section>
+    <section>
+      <h4>Summary language</h4>
+      <select id="summary_lang" aria-label="summary language"></select>
+      <p class="hint">Language of headlines, summaries, review notes and issues. Code, paths and quoted evidence stay as they are. Applies to the next triage; opening a PR triaged in another language triages it again.</p>
+    </section>
+    <section>
+      <h4>Review budget</h4>
+      <div class="budget"><span>More</span><input type="range" id="budget" min="0" max="4" step="1" aria-label="review budget"><span>Less</span></div>
+      <div id="budget-info" class="hint"></div>
+      <p class="hint">How much of the PR goes to human review. Toward Less, a review that found nothing counts for more. Pinned units (force_human paths, critical impact, medium or worse issues, failed reviews) stay in human review at every step. Moving the slider re-buckets the open PR without re-running it.</p>
+    </section>
+    <section>
+      <h4>Review tools</h4>
+      <label class="check"><input type="checkbox" id="review_tools"> let the reviewer read the repo at the PR head and the Go module cache</label>
+      <p class="hint">codex and claude-code summarizers only. Slower, but catches claims about code outside the diff. Applies to the next triage.</p>
+    </section>
+  </form>
+</dialog>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

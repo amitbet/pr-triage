@@ -1,0 +1,41 @@
+// App state, shared by every component. Components change S and call
+// render(); main.js owns the actual page render.
+
+export const S = {
+  result: null,
+  cfg: null,
+  view: localStorage.getItem("pr-triage.view") || "split",
+  hidden: new Set(),
+  collapsed: new Set(),   // file paths
+  diffOpen: {},           // unit id -> bool (default: open unless bucket none)
+  details: new Set(),     // unit ids with the details panel open
+  allHidden: false,
+  above: {},              // hunk key -> lines expanded above it
+  below: {},              // file path -> lines expanded after its last hunk
+  files: {},              // "head:path" -> lines
+  drafts: [],
+  composer: null,         // {path, side, line, id?, body}
+  tab: "review",          // review | walk | map
+  wz: { cur: null, done: new Set(), all: false, finished: false, view: localStorage.getItem("pr-triage.wzview") || "unified" },
+  tm: { scope: "repo", zoom: [], sort: "risk", mode: localStorage.getItem("pr-triage.tmmode") || "both" }, // treemap: repo | all, zoom path, color by impact | likelihood | both
+  trees: {},              // treemap data by repo ("all" = workspace)
+};
+
+let renderFn = () => {};
+export const onRender = (fn) => { renderFn = fn; };
+export const render = () => renderFn();
+
+export const prBase = () => { const p = S.result.pr; return `/api/prs/${p.host || "github.com"}/${p.owner}/${p.repo}/${p.number}`; };
+// repoName is owner/repo, with the host for GitHub Enterprise repos.
+export const repoName = (p) => `${p.host ? `${p.host}/` : ""}${p.owner}/${p.repo}`;
+export const allUnits = () => S.result.files.flatMap((f) => (f.units || []).map((u) => ({ u, f })));
+export const fileByPath = (p) => S.result.files.find((f) => f.path === p);
+export const fileOfUnit = (id) => S.result.files.find((f) => (f.units || []).some((u) => u.id === id));
+
+// syncURL keeps ?pr, ?key and ?tab shareable.
+export function syncURL() {
+  if (!S.result) return;
+  const q = new URLSearchParams({ pr: S.result.pr.url, key: S.result.key });
+  if (S.tab !== "review") q.set("tab", S.tab);
+  history.replaceState(null, "", `?${q}`);
+}

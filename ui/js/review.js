@@ -1,0 +1,131 @@
+// Review tab: every file with its units, filters, and per-unit details.
+import { esc, BUCKETS, LABEL, headline } from "./util.js";
+import { S, render, syncURL, fileOfUnit } from "./state.js";
+import { SEV_CLASS, issueCapChip, issueScenarioHTML, impactPill, likelihoodPill, attentionPill, decisionChips, scoresHTML, classificationHTML, movesHTML } from "./scores.js";
+import { unitRows, diffTable, expandAllButton } from "./diff.js";
+import { issueDraftButton } from "./comments.js";
+
+const diffShown = (u) => S.diffOpen[u.id] ?? (u.decision.bucket !== "none");
+
+function issuesHTML(f, u) {
+  if (!u.issues?.length) return u.reviewed ? `<p><span class="lbl">Review</span>No issues found.</p>` : "";
+  const items = u.issues.map((is, i) => {
+    const draft = issueDraftButton(f, u, i);
+    return `<li><span class="dz ${SEV_CLASS[is.severity] || "high"}">${esc(is.severity)}</span>` +
+      `${is.line ? `<span class="ln">line ${is.line}</span>` : ""}<b dir="auto">${esc(is.title)}</b>${issueCapChip(is)}` +
+      `${draft ? ` ${draft}` : ""}` +
+      `${is.detail ? `<span class="idetail" dir="auto">${esc(is.detail)}</span>` : ""}${issueScenarioHTML(is, "idetail")}</li>`;
+  }).join("");
+  return `<p><span class="lbl">Issues found in review</span></p><ul class="issues">${items}</ul>`;
+}
+
+function detailsHTML(f, u) {
+  const d = u.decision;
+  const parts = [];
+  if (u.summary) parts.push(`<p><span class="lbl">Summary</span><span dir="auto">${esc(u.summary)}</span></p>`);
+  parts.push(issuesHTML(f, u));
+  if (u.focus?.length) parts.push(`<p><span class="lbl">What to check</span></p><ul>${u.focus.map((x) => `<li dir="auto">${esc(x)}</li>`).join("")}</ul>`);
+  parts.push(movesHTML(u));
+  if (d.reason) parts.push(`<p><span class="lbl">Classifier</span>${esc(d.reason)}</p>`);
+  parts.push(scoresHTML(u));
+  parts.push(classificationHTML(d));
+  return `<div class="details">${parts.join("")}</div>`;
+}
+
+function unitHTML(f, u) {
+  const d = u.decision, b = d.bucket;
+  const open = diffShown(u);
+  const more = S.details.has(u.id);
+  const diff = open ? diffTable(f, unitRows(f, u), S.view) : "";
+  return `
+  <div class="unit ${b} ${open ? "" : "dim"}" data-bucket="${b}" data-uid="${esc(u.id)}">
+    <div class="unit-head">
+      <div class="row">
+        <span class="pill ${b}">${LABEL[b]}</span>
+        <span class="sym">${esc(u.symbol || "(file)")}</span>
+        ${impactPill(u.impact)}${likelihoodPill(u.likelihood)}
+        ${attentionPill(u)}
+        ${decisionChips(u)}
+        <span class="src">${esc(d.source)}${d.confidence ? ` · ${(d.confidence * 100).toFixed(0)}%` : ""}</span>
+      </div>
+      <div class="headline"><span class="text" dir="auto" title="${esc(headline(u))}">${esc(headline(u))}</span>
+        <button class="details-btn ${more ? "on" : ""}" data-act="details" data-unit="${esc(u.id)}">${more ? "hide details ▴" : "details ▾"}</button>
+        <button class="details-btn" data-act="toggle" data-unit="${esc(u.id)}">${open ? "hide code ▴" : "show code ▾"}</button>
+      </div>
+      ${more ? detailsHTML(f, u) : ""}
+    </div>
+    <div class="diffwrap">${diff}</div>
+  </div>`;
+}
+
+function fileHTML(f) {
+  const c = {};
+  f.units.forEach((u) => c[u.decision.bucket] = (c[u.decision.bucket] || 0) + 1);
+  const shown = f.units.filter((u) => !S.hidden.has(u.decision.bucket));
+  if (!shown.length) return "";
+  const fd = S.drafts.filter((d) => d.path === f.path).length;
+  return `
+  <div class="file ${S.collapsed.has(f.path) ? "collapsed" : ""}">
+    <div class="file-head" data-act="collapse" data-path="${esc(f.path)}">
+      <span class="path">${f.old_path && f.old_path !== f.path ? esc(f.old_path) + " → " : ""}${esc(f.path)}</span>
+      <span class="status">${esc(f.status)}${f.binary ? ", binary" : ""}</span>
+      ${expandAllButton(f)}
+      <span class="counts">${fd ? `<span class="pill draft">${fd} comment${fd > 1 ? "s" : ""}</span>` : ""}${BUCKETS.filter((b) => c[b]).map((b) => `<span class="pill ${b}">${c[b]}</span>`).join("")}</span>
+    </div>
+    <div class="units">${shown.map((u) => unitHTML(f, u)).join("")}</div>
+  </div>`;
+}
+
+export function reviewHTML() {
+  const r = S.result;
+  const files = r.files.filter((f) => f.units?.length);
+  return `
+    <div class="toolbar">
+      ${BUCKETS.map((b) => `<span class="filter ${b} ${S.hidden.has(b) ? "off" : ""}" data-act="filter" data-b="${b}"><b>${r.counts?.[b] || 0}</b> ${LABEL[b]}</span>`).join("")}
+      <span class="spacer"></span>
+      <button class="details-btn" data-act="all-diffs">${S.allHidden ? "show all code ▾" : "hide all code ▴"}</button>
+      <span class="seg"><button class="${S.view === "split" ? "on" : ""}" data-act="view" data-v="split">Split</button><button class="${S.view === "unified" ? "on" : ""}" data-act="view" data-v="unified">Unified</button></span>
+    </div>
+    ${files.map(fileHTML).join("") || `<div class="empty">nothing to show</div>`}`;
+}
+
+// jumpToUnit opens the Review tab on one unit, with its details and code.
+export function jumpToUnit(id) {
+  S.tab = "review";
+  syncURL();
+  S.hidden.clear();
+  S.details.add(id);
+  S.diffOpen[id] = true;
+  const f = fileOfUnit(id);
+  if (f) S.collapsed.delete(f.path);
+  render();
+  const el = document.querySelector(`.unit[data-uid="${CSS.escape(id)}"]`);
+  if (el) { el.scrollIntoView({ block: "start" }); el.classList.add("flash"); }
+}
+
+// showDraft opens the file a pending comment is on and scrolls to it.
+export function showDraft(d) {
+  S.collapsed.delete(d.path);
+  (S.result.files.find((f) => f.path === d.path)?.units || []).forEach((u) => S.diffOpen[u.id] = true);
+  S.hidden.clear();
+  render();
+  const el = document.getElementById("draft-" + d.id);
+  if (el) { el.scrollIntoView({ block: "center" }); el.classList.add("flash"); }
+}
+
+const toggle = (set, v) => set.has(v) ? set.delete(v) : set.add(v);
+
+export const actions = {
+  filter: (el) => { toggle(S.hidden, el.dataset.b); },
+  collapse: (el) => { toggle(S.collapsed, el.dataset.path); },
+  details: (el) => { toggle(S.details, el.dataset.unit); },
+  toggle: (el) => {
+    const u = S.result.files.flatMap((f) => f.units || []).find((x) => x.id === el.dataset.unit);
+    S.diffOpen[u.id] = !diffShown(u);
+  },
+  "all-diffs": () => {
+    S.allHidden = !S.allHidden;
+    S.result.files.forEach((f) => (f.units || []).forEach((u) => S.diffOpen[u.id] = !S.allHidden));
+  },
+  view: (el) => { S.view = el.dataset.v; localStorage.setItem("pr-triage.view", S.view); },
+};

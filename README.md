@@ -1,0 +1,238 @@
+# pr-triage
+
+Sorts a branch's diff into three buckets:
+
+- **human**: someone has to read it
+- **summary**: read the generated summary
+- **none**: can't change behavior (generated, formatting, pure rename, comment-only)
+
+Every uncertain case moves up a bucket. A failed LLM call, an invalid answer, low confidence, a truncated diff, or a summarizer that disagrees all push the unit up. Nothing reaches "none" without a stated reason.
+
+Requires Go, git and an authenticated [gh](https://cli.github.com) (`gh auth login`). Keep gh current (`brew upgrade gh`): older releases reject some `gh pr view --json` fields.
+
+## Pipeline
+
+1. **Diff**: `git diff -M base...head`, plus a `-w --ignore-blank-lines` pass to find formatting-only files.
+2. **Units**: Go hunks are split at top-level declarations using `go/parser`, so each function or type is one unit. TS/JS hunks are split at top-level declarations, and Java, Python, C#, Rust, shell, PowerShell, C, C++, PHP, Scala, Kotlin, Ruby, Swift and Dart hunks at the innermost type, method, property, function or impl (`codemap/decls`, tree-sitter grammars), so a field change is a unit of its class. Other files are one unit each.
+3. **Presort** (`triage/presort.go`) handles the deterministic rules. `force_human` paths always go to human. Lockfiles, `*.pb.go`, mocks, `linguist-generated` files and files with a `Code generated ... DO NOT EDIT` header go to none. So do pure renames and whitespace-only files. Docs go to summary.
+4. **Impact** (`triage/impact.go`): each unit is looked up in the code map by name, never by the map's stored line numbers. The unit's changed lines are resolved to names on the PR's own merge base: Go declarations (the head-side name first, then base-side names, which covers renames), TS/JS top-level declarations, Java types and methods, Python functions, classes and methods, C# types and members, Rust items, the types, functions and members of the other tree-sitter languages, and OpenAPI `operationId`s, using the indexer's parsers (`codemap/decls`). Context lines don't count, and an insertion only counts when it lands inside a declaration, so a new function is never scored as its neighbour. Anything the map doesn't know falls back to file, directory, then repo. SQL and other files use the file record. The result is a 0-100 impact score that blends CodeRank (how much of the system depends on the code) with rollback difficulty (migrations, persisted formats, CRDs, API tiers, DB/queue/k8s writes).
+5. **Likelihood** (`triage/likelihood.go`): how likely the change is to go wrong, 0-100, as a sum of capped points so every score comes with its reasons. From the code map: the file's fix and revert commits in the last year (recency-weighted, half-life 180 days), churn, distinct authors, fixes elsewhere in its directory, and files it usually changes with that the PR leaves out. From the change: the cyclomatic complexity and nesting of the declarations it touches at head, and how much it adds over the merge base (`codemap/cx`), whether the PR's author has changed this file or much of the repo in two years (`git log` on the PR clone, `codemap/githist`), a code change with no test changed next to it, how many directories the PR spans, changed lines (a weak signal), and whether the PR is itself a fix. Rule-skipped units and test files score 0. The signals come from just-in-time defect prediction (Kamei et al.), Meta's diff risk score and Prime Video's diff-aware features. Points are tuned under `likelihood:` in the code-map config (`codemap/indexer/default.yaml`, overridden with `-codemap-config`).
+6. **Classify**: one forced `submit_triage` tool call per unit, validated in Go, with confidence thresholds from the policy. A "summary" behavior change goes to human before review when impact ≥ 75, likelihood ≥ 75, or both ≥ 55.
+7. **Summarize and review**: a stronger model writes the summary (summary units) or review notes (human units) and reviews the unit for defects. Besides the unit's diff and the code-map context (dependent repos, rollback reasons, top likelihood factors), the prompt carries the rest of the PR (`triage/prcontext.go`): the other units' diffs, up to `review_context_chars` (default 32000), ordered with code moved from them first, then units that name each other (callers and callees), then the same file. It also carries notes worked out in Go: "this declaration does not exist at the merge base", and "N added lines here were removed from unit X", which means the code moved and its behavior is not new. Every issue has to come with `evidence` (the quoted line), a `failure_scenario`, `introduced_by_pr` and `depends_on_unseen_code`, and the rules are enforced when the answer is decoded, not left to the prompt. A claim that depends on code the reviewer did not see becomes an "unverified:" item under *what to check*. A problem the PR did not introduce, or one without a failure scenario, is capped at low, and the claimed severity is kept (`claimed_severity`, `capped`). Summary units can still be vetoed to human.
+   With review tools (`-review-tools`), the `codex` and `claude-code` reviewers can read the repository at the PR head: a detached `git worktree` of the head commit (removed after the run), or the fixture's `head_dir`. Go repos also get the module cache (`go env GOMODCACHE`), so a claim about a library's behavior can be checked against its source. Claude Code gets `Read,Grep,Glob` only; Codex stays in its read-only sandbox. It's on by default. It makes the review slower, so turn it off with `-review-tools=false` or in the UI's Settings. Without a git checkout, the review runs without tools. The API providers ignore it.
+   Summaries, review notes and issue text are in English unless `-summary-lang` (e.g. `Hebrew`, `Japanese`) or the UI's Settings → *Summary language* picks another language. Code identifiers, paths and quoted evidence stay as they are. The language is part of the result cache key, and a cached result in a different language isn't reused.
+8. **Tiers** (`triage/tiers.go`): each unit gets one score. Before review it is the *prior*: √(impact × likelihood), times a change-kind weight (behavior and config 1, test 0.8, refactor 0.6, rename 0.5, docs/format/generated 0.3; at least 0.8 when the classifier said human, at most 0.3 when it said none). A review that found nothing lowers the score by the review budget's *trust*; only low issues earn half of that. The score never drops below the review's attention (low 15, medium 45, high 75, critical 95, plus 5 per extra issue). The budget's cut-offs then pick the bucket. Some units are *pinned* to human whatever the budget: `force_human` and binary rules, failed or unsure classifications, impact ≥ `critical_impact` (85), a medium-or-worse issue, a reviewer that disagreed with "summary", and a failed review. Other rule decisions keep their bucket. Without a code-map impact, a unit keeps the classifier's bucket unless the review raises it. Behavior changes, units with risk signals, units the classifier sent to human and truncated diffs never go below summary. Which units get an LLM review depends on the prior only, so a low budget never cuts review coverage. Inside a bucket, units are ordered by score. Every unit's `score.why` shows the arithmetic, e.g. `score 41 = 58 × 0.7 (clean review) → human (≥ 40 on balanced)`.
+
+   The **review budget** has five steps, from the most human review to the least:
+
+   | budget | trust | human ≥ | summary ≥ |
+   | --- | --- | --- | --- |
+   | most | 0 | 30 | 10 |
+   | more | 0.15 | 35 | 12 |
+   | balanced (default) | 0.3 | 40 | 15 |
+   | less | 0.45 | 45 | 18 |
+   | least | 0.6 | 50 | 20 |
+
+   Set it with `tiers.review_budget` in `.triage.yaml` or `-review-budget`. Override single steps under `tiers.budgets`, and weights under `tiers.kind_weights`. Results store their scores, so the UI's budget slider re-buckets a PR without re-running it. Results cached before scores existed are re-scored when they load, with their stored bucket standing in for the classifier's call.
+9. **Render**: markdown (human, then summary, then collapsed none) or JSON.
+
+## Installation
+
+The release build is one executable with the UI, code-map indexer and default
+scoring config embedded. macOS Homebrew packaging and macOS/Linux/Windows release
+archives are configured. See [installation and release setup](docs/install.md)
+for runtime dependencies, direct downloads and release setup.
+
+With Homebrew (the tap lives in this repository):
+
+```sh
+brew tap amitbet/pr-triage https://github.com/amitbet/pr-triage
+brew install --cask amitbet/pr-triage/pr-triage
+gh auth login
+pr-triage serve
+```
+
+## Usage
+
+```sh
+go build -o pr-triage .
+
+# default: a logged-in Codex (ChatGPT) or Claude Code subscription on this machine
+./pr-triage -C ../some-repo -base origin/main
+
+# Claude Code subscription: Haiku 4.5 classifies, Opus 5.5 summarizes
+./pr-triage -classifier claude-code -summarizer claude-code
+
+# Claude API key: same models
+ANTHROPIC_API_KEY=... ./pr-triage -classifier anthropic -summarizer anthropic
+
+# OpenAI
+./pr-triage -classifier openai-api -summarizer openai-api
+
+# fully local
+./pr-triage -classifier ollama -classify-model qwen3.5:9b -summarizer ollama -summary-model qwen3.5:9b
+
+# OpenJev first pass; units it isn't sure about go to Claude
+./pr-triage -classifier openjev -fallback claude-api
+
+# presort only, no LLM
+./pr-triage -classifier off -summarizer off
+
+# write the PR description / gate a script
+./pr-triage -o triage.md && gh pr create --body-file triage.md
+./pr-triage -fail-on-human      # exit 2 if anything needs a human
+./pr-triage -out json -o triage.json
+```
+
+Policy: copy `triage.example.yaml` to `<repo>/.triage.yaml`.
+
+`-codemap DIR` (default the user cache directory plus `pr-triage/codemap`, `off` to disable) picks the code map. PR runs use the GitHub repo name as the map repo. Local `-C` runs use the checkout's directory name, or `-map-repo`.
+
+## Code map
+
+The code map is a CodeRank + rollback-difficulty index of your repos, built by `pr-triage index` / `pr-triage codemap` or the development wrapper `cmd/codemap`. See [codemap/README.md](codemap/README.md) for the metrics and file format.
+
+For development, `make codemap` indexes a workspace (a directory containing `code/<repo>`) into `.cache/map`:
+
+```sh
+make codemap WORKSPACE=~/ws                  # refresh (re-extracts only repos that changed)
+make codemap WORKSPACE=~/ws MAP_REPO=api     # force one repo
+make codemap-rank CODEMAP_CONFIG=my.yaml     # re-score after editing a scoring config
+make codemap-lookup TARGET='api/internal/user/server.go:(*Server).GetProfile'
+```
+
+`WORKSPACE` defaults to `PR_TRIAGE_WORKSPACE`.
+
+### Indexing your own repos
+
+The map is built from two sources, set with flags, environment variables or the UI's Settings → *Code map*:
+
+- **Local code directory** (`-code-root DIR`, `PR_TRIAGE_CODE_ROOT`): the git checkouts in `DIR/<repo>` or `DIR/<org>/<repo>` are symlinked into the workspace and indexed as they are on disk, uncommitted changes included. A checkout is named by its `origin` remote, so a repo cloned into a different directory name still matches its PRs.
+- **Org** (`-org`, `PR_TRIAGE_ORG`): a GitHub or GitHub Enterprise org or user, as `acme`, `ghe.example.com/platform` or its URL. Every repo you can see, except archived repos and forks, is cloned (blobless) under the cache's `workspace/code`. A repo in the local directory is linked instead of cloned.
+
+```sh
+pr-triage index -org acme                       # clone and index every repo of acme
+pr-triage index -code-root ~/code               # index the checkouts under ~/code
+pr-triage index -org acme -code-root ~/code     # both: local checkouts, clones for the rest
+```
+
+`index` pulls the clones it already has, and only re-extracts repos that changed. In the UI, **Index now** does the same and shows how many repos were linked, cloned, updated or failed. A PR from a repo that isn't in the map is added when it is triaged: linked from the local directory if it's there, else cloned. Cross-repo impact (which repos depend on the changed code) only counts repos that are in the map, so index the whole org.
+
+A rebuilt map changes the result cache key, but already-triaged PRs are not re-run. The UI and `prs` reuse the newest cached result for the same PR head until you tick **re-run**.
+
+## GitHub PRs and the UI
+
+```sh
+make ui                     # chooses a free port on 127.0.0.1 and opens the browser
+make triage-prs REPO=acme/api AUTHOR=someone LIMIT=10   # triage an author's PRs into the UI cache
+./pr-triage -pr https://github.com/acme/api/pull/566   # one PR, in the terminal
+```
+
+Paste a PR link (`.../pull/N`, `.../pull/N/files` or `owner/repo#N`) into the UI to triage it.
+
+**GitHub Enterprise.** Links on any host work, so GitHub Enterprise Server (`https://ghe.example.com/org/repo/pull/7`) and GitHub Enterprise Cloud with data residency (`*.ghe.com`) PRs triage the same way, as long as `gh` is logged in to that host (`gh auth login --hostname ghe.example.com`). `owner/repo#N` uses `GH_HOST` when it is set, else github.com; `host/owner/repo#N` names the host. `prs -repo` takes `host/owner/repo`. Clones, cached results and drafts for Enterprise hosts are kept under the host name, so the same owner/repo on two hosts don't collide; github.com keeps the names it had. Every unit shows its bucket, impact, likelihood, review attention, reason, confidence, summary, score and any escalations, above its hunks. The unit's details show how the score picked its bucket. **details** lists the issues the review found (with a **→ draft comment** button when the line can take a GitHub comment) the code-map entry (matched symbol/file, CodeRank, rollback tags, dependent repos and top callers) and the likelihood factors with the measurements behind them. The PR header shows the highest impact, likelihood and attention.
+
+The **Code map** tab is a treemap of the PR's repo (or **all repos**): repo → directories → files, sized by lines of code and colored by **impact** (red), **likelihood** (green) or **impact + likelihood**, the default: the two ramps blend like overlapping inks, so red is high impact, green is likely to break, and the darkest cells (brightest in dark mode) are both. A 3×3 legend shows the combinations. The green is lighter and yellower than the red at every step, so red-green colorblind readers can still tell them apart. A directory's likelihood is its 75th-percentile file. The PR's units are dots in the file they touch, at their line: filled = human review, ring = read summary, small = no review. Hovering a dot shows its impact (matched map entry, CodeRank, callers, dependent repos, rollback tags) and its top likelihood factors. Hovering an area shows both scores, its commits, fixes, reverts and authors in the last year, and its worst function's complexity. Click an area to zoom in (breadcrumb to zoom out), or click a dot to open that unit in the Review tab. A table of all changes sits under the map, sorted by risk (click a header to sort by impact, likelihood, bucket or file). `?tab=map` opens the tab directly. The tree comes from `GET /api/codemap/tree?repo=<name|all>`. Diffs for "none" units start collapsed.
+
+The gear button in the header opens **Settings**: the provider and model for each run (separately for the classifier and the summarizer), the review budget slider (More ↔ Less, with this PR's bucket counts at each step) and review tools. The line next to the gear shows the models and budget in use. It only lists providers this machine can run: Codex or Claude Code logged in with a subscription, an API key that is set (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`), a cloud account (Bedrock, Vertex AI, Foundry, Azure OpenAI, see below), a running Ollama, or OpenJev (classifier only). Hover a provider picker to see why the others are missing. Each provider has its own model list, taken from the provider where it can be read: `codex app-server` `model/list` (as t3code does), the OpenAI and Anthropic `/v1/models` endpoints, and Ollama's `/api/tags`. Claude Code has no list command, so it uses a built-in list. "custom model id…" takes any id. Lists are cached for 5 minutes (`GET /api/providers?refresh=1` re-probes), and the picks are remembered in the browser.
+
+The **Walkthrough** tab shows one unit at a time, most important first: human review before read summary, then by review attention, then by risk (impact × likelihood). "No review" units are left out unless you tick the box. Each step has the headline, the issues ordered by severity (**show line** scrolls to the flagged line, which is marked in the diff), the review notes, the "what to check" list and why the unit is in its bucket, next to its diff. Comments and context expansion work the same as in Review. The step bar is fixed to the bottom of the window: **← Previous** / **Next →** (or `←`/`→`) move one step at a time, the **Reviewed** checkbox (or `x`) marks the step, and **✓ Reviewed, next** (or `r`) does both. Click a numbered dot to jump. Progress is saved in the browser for each result, and `?tab=walk` opens the tab directly.
+
+### Reviewing in the UI
+
+- **Split / Unified** toggle in the toolbar. Split is the default, and the choice is remembered.
+- **Expand context** like GitHub: "↑ expand" rows above each hunk and "↓ expand below" at the end of a file load 20 lines at a time from the PR's head commit, with old and new line numbers. **↕ expand all** in a file's header opens every gap at once and shows the whole file; click it again to collapse.
+- **Review comments**: hover a line and click **+**. Comments are saved as pending drafts in `.cache/drafts/`, so a reload or restart doesn't lose them. **Review** in the header submits every draft as one GitHub review (Comment, Approve or Request changes) with `gh api repos/{owner}/{repo}/pulls/{n}/reviews`, pinned to the triaged head commit, then clears the drafts. The **+** only appears on lines GitHub accepts: changed lines, and context within 3 lines of a change. Expanded lines can't be commented on. `make ui SERVE_FLAGS=-review-dry-run` shows the payload instead of posting it.
+
+Installed commands store data in the [user cache directory](docs/install.md#data-and-code-maps); the `.cache` paths below describe the Makefile development defaults.
+
+How a PR is fetched: `gh pr view` resolves it, then a blobless clone under `.cache/repos/` fetches `refs/pull/N/head`. The diff runs against the fork point. For merged PRs that's the base branch just before the merge commit, so the diff matches what the PR changed, and source files are parsed at the PR head. `.triage.yaml` and `.gitattributes` are read from the PR head. Results are cached in `.cache/results/`, keyed by PR head SHA, providers, models and prompt version. Tick "re-run" to ignore the cache.
+
+With `-classifier auto` (the default) the first available provider wins:
+
+1. `codex`: the Codex CLI logged in with ChatGPT (`codex login`). gpt-6-luna classifies, gpt-6-sol summarizes and reviews.
+2. `claude-code`: the Claude Code CLI logged in with a Claude plan (`claude auth login`). Haiku 4.5 classifies, Opus 5.5 summarizes and reviews.
+3. `openai-api`: `OPENAI_API_KEY`. gpt-5.4-mini classifies, gpt-6-sol summarizes and reviews.
+3. A cloud account this machine is set up for, the way Claude Code is: `bedrock` (`CLAUDE_CODE_USE_BEDROCK=1` or `AWS_BEARER_TOKEN_BEDROCK`), `vertex` (`CLAUDE_CODE_USE_VERTEX=1` or `ANTHROPIC_VERTEX_PROJECT_ID`), `foundry` (`CLAUDE_CODE_USE_FOUNDRY=1` or `ANTHROPIC_FOUNDRY_RESOURCE`), then `azure-openai` (`AZURE_OPENAI_ENDPOINT`).
+4. `openai-api`: `OPENAI_API_KEY`. gpt-5.4-mini classifies, gpt-6-sol summarizes and reviews.
+5. `claude-api`: `ANTHROPIC_API_KEY`. Haiku 4.5 classifies, Sonnet 5 summarizes and reviews.
+6. Ollama.
+
+### Cloud and gateway providers
+
+For companies that only allow models through their own cloud account or an LLM gateway. Each uses the cloud's standard credentials and the environment variables its SDKs and Claude Code already read. Haiku 4.5 classifies and Sonnet 5 summarizes and reviews, unless a model is picked.
+
+| provider | credentials | settings | models |
+| --- | --- | --- | --- |
+| `bedrock` | the AWS chain (env keys, profiles and SSO, EKS web identity, instance roles), or a Bedrock API key in `AWS_BEARER_TOKEN_BEDROCK` | `AWS_REGION` (default: the profile's, else us-east-1) | `anthropic.claude-*` ids go to the Messages API on Bedrock (`bedrock-mantle.{region}.api.aws`); any other id, such as an inference-profile ARN, Nova or Llama, goes to the Converse API |
+| `vertex` | Google Application Default Credentials (`gcloud auth application-default login`, a service account, workload identity) | `ANTHROPIC_VERTEX_PROJECT_ID` (or `GOOGLE_CLOUD_PROJECT`), `CLOUD_ML_REGION` (default `global`; `us`, `eu` or a region) | `claude-sonnet-5`, `claude-haiku-4-5@20251001`, ... |
+| `foundry` | `ANTHROPIC_FOUNDRY_API_KEY`, else Entra ID (`az login`, managed or workload identity, a service principal in env) | `ANTHROPIC_FOUNDRY_RESOURCE` or `ANTHROPIC_FOUNDRY_BASE_URL` | deployment names (default `claude-haiku-4-5`, `claude-sonnet-5`) |
+| `azure-openai` | `AZURE_OPENAI_API_KEY`, else Entra ID | `AZURE_OPENAI_ENDPOINT`; `AZURE_OPENAI_DEPLOYMENTS` (comma-separated) fills the model list | deployment names (default `AZURE_OPENAI_CLASSIFY_DEPLOYMENT` / `AZURE_OPENAI_REVIEW_DEPLOYMENT`, else `gpt-5.4-mini` / `gpt-6-sol`) |
+
+Gateways: `OPENAI_BASE_URL` points `openai-api` at any OpenAI-compatible server (LiteLLM, Portkey, vLLM), and `ANTHROPIC_BASE_URL` points `claude-api` at an Anthropic-compatible one, with `ANTHROPIC_AUTH_TOKEN` as a bearer token when the gateway doesn't take `x-api-key`. Settings shows which gateway a provider uses.
+
+Claude Opus 5.5 and Fable 5.1 reject a forced tool call, so on every Claude provider those models get `tool_choice: auto` with an instruction to call the tool. A model the tool doesn't know (a Foundry deployment name, say) is switched the first time the API says so. An answer without the call still fails the unit, as before.
+
+The API providers end in `-api` so they aren't confused with the local assistants (`codex`, `claude-code`) that use a subscription. The old names `openai`, `anthropic` and `claude` still work on the command line and in requests.
+
+The subscription providers run the CLI on the server's machine once per call (`codex exec --output-schema`, `claude -p --json-schema`) in an empty temp directory with no tools, hooks or MCP servers (with review tools on, the review runs in the PR-head worktree with read-only tools instead). API keys are removed from their environment, so a key in `.env` never takes the place of the subscription. Login is checked once per process (`codex login status`, `claude auth status`); a Codex login that uses an API key doesn't count as a subscription. Codex needs a strict schema, so optional fields are sent as nullable and nulls are dropped from the answer.
+
+`make` reads `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` from `ENV_FILE` (default `.env`, git-ignored; copy `.env.example`) when they aren't already exported.
+
+OpenAI reasoning effort is `-classify-effort` (default `low`) and `-review-effort` (default `medium`); `''` uses the model's default and `none` turns reasoning off. Any other effort goes through the Responses API, because gpt-5.6 and gpt-6 models only accept function tools with reasoning there. The output caps (4096 classify, 8192 review) include reasoning tokens. `codex` and `claude-code` take the same flags (`minimal` becomes `low`; Haiku has no effort setting). The Anthropic API ignores them: extended thinking can't be combined with the forced tool call each step uses. The effort is part of the result cache key and shows in the UI next to the model (`openai-api/gpt-6-sol @medium`).
+
+Classify runs `-j` calls at a time (default 8), summarize/review runs `-review-j` (default 16; `0` uses `-j`). Review calls take much longer, especially with review tools, so the stage gets its own limit. Lower it if the provider starts rate-limiting.
+
+## Eval
+
+```sh
+./pr-triage eval -fixtures testdata/eval [-classifier ...] [-judge]
+```
+
+Each `testdata/eval/NAME.json` is either a past PR in a local clone (`repo`, `base`, `head`) or a saved diff plus the head versions of the changed files (`diff`, `head_dir`, and optionally `base_dir` with the merge-base versions). `labels` maps unit IDs (`file:Symbol`) or file paths to buckets. The key metric is **MISSES human→none**. Over-escalation is tolerable. The eval also re-places every unit under each review budget and prints the bucket counts, the human-labeled units outside human (`under`), and the units with a `must_find` issue outside human (`defects`). Use those to tune the budget steps.
+
+`findings` scores the review itself, per unit ID or file:
+
+```json
+"findings": {"store/client.go": {
+  "must_find":     [{"match": "transient\\w* errors?[^.]*cach", "min_severity": "low", "max_severity": "medium"}],
+  "must_not_find": [{"match": "pointer"}, {"match": "reconnect", "min_severity": "medium"}]}}
+```
+
+`match` is a case-insensitive regexp over an issue's title and detail. A `must_find` rule counts as found when an issue matches at a severity inside its range, and as a severity miss when the only match is outside it. A `must_not_find` rule is broken by a matching issue at `min_severity` (default low) or above, so `{"match": "reconnect", "min_severity": "medium"}` accepts it as a low. The eval prints recall on `must_find`, the false positives, and precision over the issues on labeled keys. `inventory-error-cache` moves a retry loop into a new function and adds a negative cache for failed lookups. It checks that the review flags transient errors being cached like permanent ones, does not claim the value-typed `ReplyError` escapes `errors.As`, and rates the pre-existing reconnect as low at most.
+
+`-judge` asks OpenJev how faithful each generated summary is, and lists the ones scoring below 0.5.
+
+## OpenJev
+
+[OpenJev](https://github.com/lookski/openjev) runs a local model for one forward pass and returns softmax probabilities over fixed answers. It generates no text, so its confidence values are real probabilities, not something the model reports about itself. It is fast and free. It can't reason before it answers, so here it only settles units it is very sure about (`DefaultJevAccept`: human ≥ 0.8, summary ≥ 0.9, none ≥ 0.97 plus p(behavior change) ≤ 0.03). Everything else goes to `-fallback`.
+
+```sh
+git clone https://github.com/lookski/openjev && cd openjev && pip install -e .
+openjev-easy          # serves http://127.0.0.1:8771 (override with OPENJEV_BASE_URL / -openjev-url)
+```
+
+The default model (Qwen3-0.6B) is too small to judge code. Use a larger code model, then run `eval` with `-classifier openjev -fallback off` to see how much it gets right on its own before trusting it.
+
+## Layout
+
+```
+main.go          flags; triage, eval, serve, prs commands
+serve.go         UI server, job runner, result cache
+review.go        draft comments, file content for context expansion, review submission
+ui/              the UI, embedded into the binary: index.html, css/ per component, js/ ES modules (no build step;
+                 main.js renders the page and routes data-act clicks to each component's `actions`)
+llm/             provider adapters for Anthropic, OpenAI, Ollama, Codex and Claude Code, plus Bedrock, Vertex AI, Foundry and Azure OpenAI (cloud.go)
+                 (Call only, forced tool choice, per-response usage) + OpenJev client
+triage/          diff, units, policy, presort, impact, likelihood, classify, prcontext (rest of the PR for review), summarize,
+                 workspace (review tools), tiers, pipeline, render, eval, pr (GitHub fetch)
+codemap/         code-map reader and lookup (stdlib only)
+cmd/codemap/     standalone development entry point for the bundled indexer
+codemap/indexer/ indexer, embedded default rules, language extractors (type-checked Go, tree-sitter Java/Python/C#/Rust and shell/PowerShell/C/C++/PHP/Scala/Kotlin/Ruby/Swift/Dart, lexed TS/JS), PageRank and rollback rules
+scripts/         development indexer wrapper and standalone release smoke check
+testdata/eval/   labeled fixtures
+```
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE).

@@ -1,0 +1,70 @@
+version: 2
+project_name: pr-triage
+
+builds:
+  - id: pr-triage
+    main: .
+    binary: pr-triage
+    env: [CGO_ENABLED=0]
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+archives:
+  - formats: [tar.gz]
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+      - docs/install.md
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  prerelease: auto
+
+changelog:
+  use: github
+  filters:
+    exclude:
+      - '^Update Homebrew cask'
+
+# The tap is this repository: the cask is committed to Casks/ on the default
+# branch. Install with
+#   brew tap amitbet/pr-triage https://github.com/amitbet/pr-triage
+#   brew install --cask amitbet/pr-triage/pr-triage
+homebrew_casks:
+  - name: pr-triage
+    binaries: [pr-triage]
+    directory: Casks
+    repository:
+      owner: amitbet
+      name: pr-triage
+      branch: main
+      token: '{{ .Env.GITHUB_TOKEN }}'
+    commit_author:
+      name: github-actions[bot]
+      email: 41898282+github-actions[bot]@users.noreply.github.com
+    commit_msg_template: 'Update Homebrew cask for {{ .ProjectName }} {{ .Tag }}'
+    homepage: https://github.com/amitbet/pr-triage
+    description: Sort pull request changes by the human review they need
+    license: Apache-2.0
+    skip_upload: auto
+    dependencies:
+      - formula: git
+      - formula: gh
+    caveats: |
+      Run `gh auth login`, then `pr-triage serve`.
+      Install Go for full Go call graphs; otherwise indexing uses declarations only.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/pr-triage"]
+          end

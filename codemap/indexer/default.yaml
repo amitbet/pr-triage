@@ -1,0 +1,236 @@
+# Embedded default scoring rules. Paths are relative to the application cache.
+output: codemap
+cache: graphs
+
+rank:
+  damping: 0.85
+
+# Impact: how much a bad change here can break. CodeRank (who depends on
+# it) blended with rollback difficulty. Levels also apply to likelihood.
+impact:
+  rank_weight: 0.55
+  rollback_weight: 0.45
+  levels: { critical: 75, high: 55, medium: 35 }
+
+# History: read from each repo's git log (commit trees only, no renames
+# followed). Changing these needs `make codemap-rank`, not re-extraction,
+# as long as days stays within the 730 days extraction reads.
+history:
+  days: 365            # window counted back from the indexed commit
+  half_life_days: 180  # a commit this old counts half in recency-weighted sums
+  bulk_files: 40       # commits touching more files are mass edits: no churn, no co-change
+  # Commit subjects that mark a bug fix / not a bug fix / a revert.
+  fix: '(?i)\b(fix(es|ed|ing)?|bug(fix)?|hotfix|regression|incident|outage|crash(es|ed)?|panic(s|ed)?|broken|leak)\b'
+  not_fix: '(?i)\b(typos?|lint(er|ing)?|flaky|spelling|readme|docs?|comments?|format(ting)?)\b'
+  revert: '^(Revert|revert)\b'
+  # A file's usual partners: changed together in >= min_commits commits and
+  # in >= min_conf of the file's commits.
+  cochange: { min_commits: 3, min_conf: 0.3, max: 5 }
+
+# Likelihood: how likely a change here is to go wrong. Points per signal,
+# each capped (points = min(max, max(0, value - from) * per)), total capped
+# at 100. The map scores history + complexity; pr-triage adds the change
+# rules for each PR unit. Signals come from just-in-time defect prediction
+# (Kamei et al.), Meta's diff risk score and Prime Video's diff-aware
+# features: past fixes and reverts, churn, author count and experience,
+# complexity (a stronger signal than change size), tests and co-change.
+likelihood:
+  # place
+  fix:     { per: 12, max: 30 }           # per recency-weighted fix commit to the file
+  revert:  { per: 15, max: 20 }           # per revert touching the file
+  churn:   { per: 1, from: 3, max: 10 }   # per recency-weighted commit beyond 3
+  authors: { per: 2, from: 2, max: 8 }    # per distinct author beyond 2
+  dir_fix: { per: 2, max: 6 }             # per recency-weighted fix elsewhere in the directory
+  cyclo:   { per: 1.25, from: 5, max: 22 } # cyclomatic complexity of the worst function
+  nest:    { per: 4, from: 3, max: 10 }   # nesting depth beyond 3
+  # change (PR units only)
+  cyclo_delta: { per: 2, max: 14 }        # per point of complexity the change adds
+  size:        { per: 0.05, from: 20, max: 6 } # per changed line beyond 20 (a weak signal)
+  new_to_file: { per: 8, max: 8 }         # the author never changed this file
+  newcomer:    { per: 6, max: 6 }         # the author has fewer than newcomer_commits in the repo
+  cochange:    { per: 5, max: 10 }        # per usual partner file the PR leaves alone
+  test_gap:    { per: 6, max: 6 }         # code changed, no test in its package did
+  diffusion:   { per: 1, from: 3, max: 6 } # per directory the PR touches beyond 3
+  fix_pr:      { per: 4, max: 4 }         # the PR is itself a bug fix
+  newcomer_commits: 10
+
+symbols:
+  # Symbols get their own record when used from another file, when they carry
+  # a rollback tag at or above min_tag_score, or when they are API operations.
+  # The rest fall back to their file record at lookup time.
+  min_external_callers: 1
+  min_tag_score: 60
+  emit_exported: false
+
+rollback:
+  # Score for code with no tags: a plain redeploy undoes the change.
+  default: 10
+  # Added once per extra tag scoring >= 40 beyond the strongest one.
+  multi_tag_bonus: 3
+  propagate:
+    # Sink tags flow up the call graph this many hops, losing `decay` of the
+    # score per hop (a handler that calls a repo method that writes the DB).
+    max_hops: 3
+    decay: 0.1
+
+  # Rules match repo, category (from repos.yaml), path globs and, for symbols,
+  # kind / extraction tags / symbol regex / exported. Every matching rule adds
+  # a tag; the strongest tag sets the score. impact_cap limits total impact.
+  rules:
+    # --- persisted data and schemas ---
+    - id: db-migration
+      score: 95
+      reason: Schema/data migrations run once against shared databases; a code rollback does not undo them.
+      impact_floor: 70
+      match: { path: ["**/migrations/**", "**/migrate/**/*.sql"] }
+    - id: sql-schema-or-query
+      score: 55
+      reason: SQL queries/schema consumed by sqlc and generated DAO code.
+      match: { path: ["**/*.sql"], not_path: ["**/migrations/**"] }
+    - id: parquet-model
+      score: 90
+      reason: Parquet structs are persisted in object storage and read by several services across versions.
+      impact_floor: 65
+      match: { tags: [parquet-struct] }
+    - id: clickhouse-schema
+      score: 70
+      reason: Structs mapped to ClickHouse columns; stored rows outlive the release.
+      match: { tags: [clickhouse-struct] }
+    - id: db-row-shape
+      score: 45
+      reason: Struct mapped to database columns.
+      match: { tags: [db-struct] }
+    - id: data-access
+      score: 40
+      reason: DAO code and sqlc models; shape of what is read from and written to the service database.
+      match: { path: ["**/dao/**", "**/repository/**", "**/store/**"], not_path: ["**/mocks/**", "**/mock/**"], category: [core, shared, agent] }
+    - id: crd-schema
+      score: 90
+      reason: CRD types are installed in customer clusters; stored objects must stay readable after rollback.
+      impact_floor: 65
+      match: { tags: [crd-type] }
+    - id: crd-manifest
+      score: 90
+      reason: CRD manifests change the API server schema in customer clusters.
+      impact_floor: 65
+      match: { path: ["**/crds/**/*.{yaml,yml}", "**/crd/**/*.{yaml,yml}", "config/crd/**"] }
+
+    # --- API contracts ---
+    - id: public-api
+      score: 85
+      reason: Public API consumed by customers and scripts outside the organization; breaking changes cannot be recalled.
+      impact_floor: 55
+      match: { path: ["api/**/public/**", "api/**/public_auth/**", "pkg/client/**/public/**", "pkg/client/**/public_auth/**"] }
+    - id: user-api
+      score: 55
+      reason: API used by web and admin UIs; UI and service deploy separately, so both versions must work.
+      match: { path: ["api/**/user/**", "api/**/features/**", "pkg/client/**/user/**", "pkg/client/**/features/**"] }
+    - id: internal-api
+      score: 50
+      reason: Service-to-service API; consumers pin client versions and deploy on their own schedule.
+      match: { path: ["api/**/inner/**", "api/inner/**", "api/**/service/**", "api/service/**", "pkg/client/**/inner/**", "pkg/client/inner/**", "pkg/client/**/service/**", "pkg/client/service/**"] }
+    - id: generated-client
+      score: 45
+      reason: Generated client module imported by other services at a pinned version.
+      match: { path: ["pkg/client/**"] }
+    - id: shared-library-api
+      score: 40
+      reason: Exported API of a shared module; consumers upgrade on their own schedule, so a bad release lingers.
+      match: { category: [shared], exported: true }
+    - id: message-schema
+      score: 60
+      reason: Queue message payload types; in-flight messages survive a rollback.
+      match: { path: ["**/event/**", "**/events/**", "**/queue/**", "**/messages/**"], kind: [type] }
+
+    # --- where the code runs ---
+    - id: customer-deployed
+      score: 60
+      reason: Runs in customer clusters; rollback needs a new agent release and customer-side upgrade.
+      match: { category: [agent] }
+    - id: customer-helm
+      score: 75
+      reason: Helm chart shipped to customers; values/templates changes need a customer upgrade to revert.
+      impact_floor: 55
+      match: { category: [agent], path: ["helm/**", "charts/**", "**/chart/**"] }
+    - id: saas-helm
+      score: 30
+      reason: SaaS deployment manifests; reverted by redeploying the previous chart.
+      match: { path: ["helm/**", "charts/**", "deploy/**"], not_path: ["**/crds/**"] }
+    - id: service-config
+      score: 25
+      reason: Flags/env wiring; wrong values fail at startup and revert with a redeploy.
+      match: { path: ["conf/**", "config/**", "cmd/**", "main.go"] }
+    - id: build
+      score: 20
+      reason: Build and CI files.
+      match: { path: ["Dockerfile", "**/Dockerfile", "Makefile", ".github/**", "go.mod", "package.json", "**/pom.xml", "**/*.gradle", "**/*.gradle.kts", "**/pyproject.toml", "**/requirements*.txt", "**/setup.py", "**/setup.cfg", "**/Pipfile", "**/*.csproj", "**/*.sln", "**/Directory.Build.props", "**/Directory.Packages.props", "**/packages.config", "**/global.json", "**/{nuget,NuGet}.config", "**/Cargo.toml", "**/build.rs", "**/rust-toolchain", "**/rust-toolchain.toml"] }
+    - id: frontend
+      score: 10
+      reason: Static frontend; a redeploy reverts it for every user.
+      match: { category: [frontend] }
+
+    # --- low-risk areas (cap impact) ---
+    - id: test
+      score: 0
+      impact_cap: 10
+      reason: Test code.
+      match: { path: ["**/*_test.go", "**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx", "**/*.test.js", "**/*.test.jsx", "**/*.spec.js", "**/__tests__/**", "**/testdata/**", "e2e/**", "**/testutil/**", "**/mocks/**", "**/mock/**", "**/src/test/**", "**/*Test.java", "**/*Tests.java", "**/*IT.java", "**/test_*.py", "**/*_test.py", "**/conftest.py", "**/tests/**", "**/*Tests.cs", "**/*Test.cs", "**/*.Tests/**", "**/benches/**", "**/*_tests.rs"] }
+    - id: docs
+      score: 0
+      impact_cap: 5
+      reason: Documentation.
+      match: { path: ["**/*.md", "docs/**", "**/*.mdx"] }
+    - id: stories
+      score: 0
+      impact_cap: 10
+      reason: Storybook stories.
+      match: { path: ["**/*.stories.tsx", "**/*.stories.ts", ".storybook/**"] }
+
+  # Sinks are calls whose effects outlive a rollback. Patterns match the
+  # callee node key, e.g. go:<import path>:(*T).Method, ts:<repo>/<file>:<name>,
+  # java:<repo>/<file>:Type.method, py:<repo>/<file>:Class.method,
+  # cs:<repo>/<file>:Type.Member or rs:<repo>/<file>:Type::method.
+  sinks:
+    - id: db-write
+      score: 65
+      reason: Writes to Postgres; rows written by a bad release stay after rollback.
+      callee:
+        - '^go:[^:]*/dao[^:]*:\(\*?(Queries|Querier|TxQuerier)\)\.(Create|Insert|Update|Upsert|Delete|Soft|Set|Unset|Add|Remove|Save|Mark|Bulk|Batch|Claim|Reset|Extend|Acquire|Approve|Attach|Detach|Mute|Unmute|Resolve|Archive|Restore|Enable|Disable|Assign|Unassign|Replace|Increment|Touch|Copy|Purge|Expire)'
+        - '^go:github.com/jackc/pgx/v5[^:]*:\(\*?(Conn|Pool|Tx|Batch)\)\.(Exec|CopyFrom|SendBatch)$'
+        - '^go:database/sql:\(\*(DB|Tx|Conn|Stmt)\)\.Exec(Context)?$'
+    - id: clickhouse-write
+      score: 65
+      reason: Writes to ClickHouse; inserted rows stay after rollback.
+      callee:
+        - '^go:github.com/ClickHouse/clickhouse-go/v2[^:]*:.*\.(Exec|PrepareBatch|AsyncInsert)$'
+    - id: message-publish
+      score: 60
+      reason: Publishes queue messages; consumers may already have processed them.
+      callee:
+        - '^go:github.com/ThreeDotsLabs/watermill[^:]*:\(\w+\)\.Publish$'
+    - id: object-store-write
+      score: 70
+      reason: Writes objects (data files, reports) to S3/GCS; stored files are read by later versions.
+      callee:
+        - '^go:github.com/aws/aws-sdk-go-v2/service/s3:\(\*Client\)\.(PutObject|DeleteObject|DeleteObjects|CopyObject|CompleteMultipartUpload)$'
+        - '^go:github.com/aws/aws-sdk-go-v2/feature/s3/manager:\(\*Uploader\)\.Upload$'
+        # SDK calls usually sit behind a local interface; the request types give them away.
+        - '^go:github.com/aws/aws-sdk-go-v2/service/s3:type (PutObjectInput|DeleteObjectInput|DeleteObjectsInput|CopyObjectInput|CompleteMultipartUploadInput|CreateMultipartUploadInput)$'
+        - '^go:cloud.google.com/go/storage:\(\*(ObjectHandle|Writer)\)\.(NewWriter|Delete|Write)$'
+    - id: k8s-write
+      score: 75
+      reason: Mutates Kubernetes objects in a customer cluster; changed workloads stay changed after rollback.
+      category: [agent]
+      callee:
+        - '^go:k8s.io/client-go/kubernetes/typed/[^:]*:\(\w+\)\.(Create|Update|UpdateStatus|UpdateResize|Patch|Apply|ApplyStatus|Delete|DeleteCollection|Evict\w*)$'
+        - '^go:sigs.k8s.io/controller-runtime/pkg/client:\((Writer|Client|StatusWriter|SubResourceWriter|SubResourceClient|WithWatch)\)\.(Create|Update|Patch|Delete|DeleteAllOf|Apply)$'
+        - '^go:k8s.io/client-go/dynamic:\(\w+\)\.(Create|Update|UpdateStatus|Patch|Apply|Delete|DeleteCollection)$'
+        - '^go:k8s.io/client-go/rest:\((Interface|\*RESTClient)\)\.(Post|Put|Patch|Delete)$'
+        - '^go:k8s.io/apimachinery/pkg/apis/meta/v1:type (PatchOptions|UpdateOptions|CreateOptions|DeleteOptions|ApplyOptions)$'
+    - id: external-notify
+      score: 50
+      reason: Sends messages to customer Slack/Teams/Jira/email; sent notifications cannot be recalled.
+      callee:
+        - '^go:github.com/slack-go/slack:\(\*Client\)\.(PostMessage|SendMessage|PostWebhook)\w*$'
+        - '^go:github.com/slack-go/slack:PostWebhook\w*$'
+        - '^go:github.com/andygrunwald/go-jira[^:]*:\(\*IssueService\)\.Create\w*$'

@@ -1,0 +1,268 @@
+package triage
+
+import (
+	"fmt"
+	"os"
+	"path"
+	"regexp"
+	"strings"
+	"sync"
+
+	"gopkg.in/yaml.v3"
+)
+
+type Bucket string
+
+const (
+	BucketHuman   Bucket = "human"
+	BucketSummary Bucket = "summary"
+	BucketNone    Bucket = "none"
+)
+
+// rank orders buckets by review effort; escalation only ever moves up.
+func (b Bucket) rank() int {
+	switch b {
+	case BucketNone:
+		return 0
+	case BucketSummary:
+		return 1
+	default:
+		return 2
+	}
+}
+
+func (b Bucket) Valid() bool {
+	return b == BucketHuman || b == BucketSummary || b == BucketNone
+}
+
+// Up returns the next bucket up.
+func (b Bucket) Up() Bucket {
+	if b == BucketNone {
+		return BucketSummary
+	}
+	return BucketHuman
+}
+
+func maxBucket(a, b Bucket) Bucket {
+	if a.rank() >= b.rank() {
+		return a
+	}
+	return b
+}
+
+type Thresholds struct {
+	// Minimum confidence to accept a "none" / "summary" answer. Below it
+	// the unit goes up one bucket.
+	None    float64 `yaml:"none"`
+	Summary float64 `yaml:"summary"`
+}
+
+// Policy is loaded from .triage.yaml in the repo root and merged over
+// the defaults. The forced-human list is policy, not a model decision.
+type Policy struct {
+	Generated  []string   `yaml:"generated"`
+	ForceHuman []string   `yaml:"force_human"`
+	Thresholds Thresholds `yaml:"thresholds"`
+	// MaxUnitChars caps the diff text sent per unit. Truncated units can
+	// never be classified "none".
+	MaxUnitChars int `yaml:"max_unit_chars"`
+	// ReviewContextChars caps the other units' diffs shown with each unit
+	// in the review prompt.
+	ReviewContextChars int `yaml:"review_context_chars"`
+	// Tiers moves units using code-map impact, likelihood and review attention.
+	Tiers TierPolicy `yaml:"tiers"`
+}
+
+func DefaultPolicy() Policy {
+	return Policy{
+		Generated: []string{
+			"go.sum", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "Cargo.lock", "poetry.lock", "uv.lock", "packages.lock.json",
+			"vendor/", "node_modules/",
+			"*.pb.go", "*_pb2.py", "*.pb.gw.go", "*_grpc.pb.go", "*.g.cs", "*.g.i.cs", "*.Designer.cs",
+			"*_mock.go", "mock_*.go", "mocks/",
+			"zz_generated*", "*.gen.go", "*_gen.go",
+			"*.min.js", "*.snap",
+		},
+		ForceHuman: []string{
+			"migrations/", "**/migrations/**", "*.sql",
+			"**/auth/**", "**/rbac/**", "*rbac*.yaml",
+			"Dockerfile", "*.Dockerfile", "docker-compose*.yml",
+			".github/workflows/", "Makefile",
+			"*.tf", "*.tfvars",
+			"charts/", "**/values*.yaml", "**/crds/**", "*_types.go",
+			"go.mod",
+		},
+		Thresholds:         Thresholds{None: 0.9, Summary: 0.7},
+		MaxUnitChars:       24000,
+		ReviewContextChars: DefaultReviewContextChars,
+		Tiers:              DefaultTierPolicy(),
+	}
+}
+
+// LoadPolicy reads path (if it exists) and appends its lists to the defaults.
+func LoadPolicy(file string) (Policy, error) {
+	b, err := os.ReadFile(file)
+	if os.IsNotExist(err) {
+		return DefaultPolicy(), nil
+	}
+	if err != nil {
+		return DefaultPolicy(), err
+	}
+	return ParsePolicy(b)
+}
+
+// ParsePolicy parses .triage.yaml content and merges it over the defaults.
+func ParsePolicy(b []byte) (Policy, error) {
+	p := DefaultPolicy()
+	var user Policy
+	if err := yaml.Unmarshal(b, &user); err != nil {
+		return p, err
+	}
+	p.Generated = append(p.Generated, user.Generated...)
+	p.ForceHuman = append(p.ForceHuman, user.ForceHuman...)
+	if user.Thresholds.None > 0 {
+		p.Thresholds.None = user.Thresholds.None
+	}
+	if user.Thresholds.Summary > 0 {
+		p.Thresholds.Summary = user.Thresholds.Summary
+	}
+	if user.MaxUnitChars > 0 {
+		p.MaxUnitChars = user.MaxUnitChars
+	}
+	if user.ReviewContextChars > 0 {
+		p.ReviewContextChars = user.ReviewContextChars
+	}
+	// Tiers: fields the file sets override the defaults, the rest stay,
+	// down to single budget fields.
+	var tiers struct {
+		Tiers struct {
+			ReviewBudget string `yaml:"review_budget"`
+			Budgets      map[string]struct {
+				Trust          *float64 `yaml:"trust"`
+				Human, Summary *int
+			} `yaml:"budgets"`
+			KindWeights    map[string]float64 `yaml:"kind_weights"`
+			CriticalImpact *int               `yaml:"critical_impact"`
+		} `yaml:"tiers"`
+	}
+	if err := yaml.Unmarshal(b, &tiers); err != nil {
+		return p, err
+	}
+	t := tiers.Tiers
+	if t.ReviewBudget != "" {
+		p.Tiers.ReviewBudget = t.ReviewBudget
+	}
+	for name, ub := range t.Budgets {
+		bud := p.Tiers.Budgets[name]
+		if ub.Trust != nil {
+			bud.Trust = *ub.Trust
+		}
+		if ub.Human != nil {
+			bud.Human = *ub.Human
+		}
+		if ub.Summary != nil {
+			bud.Summary = *ub.Summary
+		}
+		if bud.Trust < 0 || bud.Trust > 1 || bud.Summary > bud.Human {
+			return p, fmt.Errorf("tiers.budgets.%s: want 0 <= trust <= 1 and summary <= human, got %+v", name, bud)
+		}
+		p.Tiers.Budgets[name] = bud
+	}
+	for k, w := range t.KindWeights {
+		p.Tiers.KindWeights[k] = w
+	}
+	if t.CriticalImpact != nil {
+		p.Tiers.CriticalImpact = *t.CriticalImpact
+	}
+	if _, _, err := p.Tiers.Budget(""); err != nil {
+		return p, fmt.Errorf("tiers.review_budget: %w", err)
+	}
+	return p, nil
+}
+
+// LoadGitattributesGenerated returns patterns marked linguist-generated.
+func LoadGitattributesGenerated(file string) []string {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return nil
+	}
+	return ParseGitattributesGenerated(b)
+}
+
+func ParseGitattributesGenerated(b []byte) []string {
+	var out []string
+	for _, line := range strings.Split(string(b), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || strings.HasPrefix(fields[0], "#") {
+			continue
+		}
+		for _, attr := range fields[1:] {
+			if attr == "linguist-generated" || attr == "linguist-generated=true" {
+				out = append(out, fields[0])
+			}
+		}
+	}
+	return out
+}
+
+// MatchAny reports the first pattern matching file, gitignore-style:
+// patterns without a slash match the basename, "dir/" matches anything
+// under a directory with that name, "**" crosses directories.
+func MatchAny(patterns []string, file string) (string, bool) {
+	for _, p := range patterns {
+		if matchGlob(p, file) {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+var (
+	globMu    sync.Mutex
+	globCache = map[string]*regexp.Regexp{}
+)
+
+func matchGlob(pattern, file string) bool {
+	pattern = strings.TrimPrefix(pattern, "/")
+	if strings.HasSuffix(pattern, "/") {
+		dir := strings.TrimSuffix(pattern, "/")
+		return file == dir || strings.HasPrefix(file, dir+"/") || strings.Contains(file, "/"+dir+"/")
+	}
+	if !strings.Contains(pattern, "/") {
+		ok, _ := path.Match(pattern, path.Base(file))
+		return ok
+	}
+	globMu.Lock()
+	re, ok := globCache[pattern]
+	if !ok {
+		re = regexp.MustCompile("^" + globToRegexp(pattern) + "$")
+		globCache[pattern] = re
+	}
+	globMu.Unlock()
+	return re.MatchString(file)
+}
+
+func globToRegexp(p string) string {
+	var sb strings.Builder
+	for i := 0; i < len(p); i++ {
+		switch c := p[i]; c {
+		case '*':
+			if i+1 < len(p) && p[i+1] == '*' {
+				i++
+				if i+1 < len(p) && p[i+1] == '/' {
+					i++
+					sb.WriteString("(.*/)?")
+				} else {
+					sb.WriteString(".*")
+				}
+			} else {
+				sb.WriteString("[^/]*")
+			}
+		case '?':
+			sb.WriteString("[^/]")
+		default:
+			sb.WriteString(regexp.QuoteMeta(string(c)))
+		}
+	}
+	return sb.String()
+}

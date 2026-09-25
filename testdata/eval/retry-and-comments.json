@@ -1,0 +1,9 @@
+{
+  "diff": "retry-and-comments.diff",
+  "head_dir": "retry-and-comments.head",
+  "labels": {
+    "svc.go:Retry": "human",
+    "svc.go:Greet": "summary",
+    "svc.go:Sum": "none"
+  }
+}

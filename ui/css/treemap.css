@@ -1,0 +1,37 @@
+/* Code map tab. */
+.tm-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 12px 0 8px; font-size: 14px; }
+.tm-crumbs { font-family: var(--mono); font-size: 13px; }
+.tm-crumbs a { cursor: pointer; }
+.tm-wrap { position: relative; }
+.tm-wrap svg { display: block; width: 100%; user-select: none; }
+.tm-wrap rect.cell { cursor: default; }
+.tm-wrap rect.cell.zoomable { cursor: zoom-in; }
+.tm-wrap rect.cell:hover { stroke: var(--fg); stroke-width: 1.5; }
+.tm-wrap text { font: 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; pointer-events: none; }
+.tm-wrap text.head { font-weight: 600; }
+.tm-wrap .dot { cursor: pointer; }
+.tm-wrap .dot:hover .mark { stroke-width: 3; }
+.tm-tip { position: absolute; z-index: 10; pointer-events: none; max-width: 420px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.18); padding: 8px 10px; font-size: 13px; line-height: 1.45; }
+.tm-tip .tt { font-family: var(--mono); font-weight: 600; overflow-wrap: anywhere; }
+.tm-tip .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+.tm-tip .mut { color: var(--muted); }
+.tm-tip code { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.tm-legend { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin: 8px 0; }
+.tm-scale { display: flex; align-items: center; gap: 6px; }
+.tm-scale .ramp { width: 220px; height: 10px; border-radius: 3px; }
+.tm-scale .ticks { display: block; position: relative; width: 220px; height: 14px; margin-top: 2px; font-size: 11px; }
+.tm-scale .ticks span { position: absolute; transform: translateX(-50%); }
+.tm-shapes { display: flex; gap: 12px; align-items: center; }
+.tm-shapes svg { vertical-align: middle; }
+table.tm-table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin-top: 14px; }
+table.tm-table th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border-bottom: 1px solid var(--border); padding: 4px 8px; cursor: pointer; }
+table.tm-table td { border-bottom: 1px solid var(--border); padding: 4px 8px; vertical-align: top; }
+table.tm-table td.id { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+table.tm-table tr:hover td { background: var(--bg2); cursor: pointer; }
+.tm-bivar { display: flex; align-items: center; gap: 10px; }
+.tm-bivar svg { font-size: 11px; overflow: visible; }
+.tm-bivar-key { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.tm-bivar-key i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+table.tm-table th.on { color: var(--fg); }
+table.tm-table td.num { font-variant-numeric: tabular-nums; }
+table.tm-table td.mut { color: var(--muted); font-size: 12.5px; }

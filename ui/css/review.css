@@ -1,0 +1,35 @@
+/* Review tab: files, units, details. */
+.file { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 16px; }
+.file-head { border-radius: 6px 6px 0 0; display: flex; gap: 8px; align-items: center; padding: 8px 12px; background: var(--bg2); border-bottom: 1px solid var(--border); cursor: pointer; position: sticky; top: 54px; z-index: 5; }
+.file-head .path { font-family: var(--mono); font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.file-head .status { font-size: 12px; color: var(--muted); border: 1px solid var(--border); border-radius: 10px; padding: 0 6px; }
+.file-head .counts { margin-left: auto; display: flex; gap: 4px; }
+.file.collapsed .units { display: none; }
+.file.collapsed .file-head { border-bottom: 0; border-radius: 6px; }
+.unit { border-left: 4px solid var(--border); }
+.unit + .unit { border-top: 2px solid var(--muted); }
+.unit.human { border-left-color: var(--human); } .unit.summary { border-left-color: var(--summary); } .unit.none { border-left-color: var(--none); }
+.unit-head { padding: 10px 14px 12px; background: var(--bg); }
+.unit-head .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.unit-head .sym { font-family: var(--mono); font-size: 13.5px; font-weight: 600; }
+.unit-head .src { font-size: 12px; color: var(--muted); margin-left: auto; font-family: var(--mono); }
+.headline { display: flex; gap: 10px; align-items: center; margin-top: 6px; font-size: 17px; font-weight: 600; line-height: 1.4; }
+.headline .text { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.details-btn { flex: none; font-size: 13px; font-weight: 600; line-height: 20px; padding: 1px 10px; border-radius: 12px; border: 1px solid var(--accent); color: var(--accent); background: transparent; white-space: nowrap; }
+.details-btn:hover, .details-btn.on { background: var(--accent); color: #fff; }
+.issues { list-style: none; padding: 0 !important; }
+.issues li { margin: 0 0 6px; }
+.issues .dz { margin-right: 6px; }
+.issues .ln { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-right: 6px; }
+.issues .idetail { display: block; color: var(--muted); font-size: 14px; margin: 2px 0 0 2px; }
+.details code { font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+.details { margin-top: 8px; padding: 10px 14px; border-radius: 6px; background: var(--bg2); border: 1px solid var(--border); font-size: 15px; }
+.details p { margin: 0 0 8px; }
+.details p:last-child { margin-bottom: 0; }
+.details .lbl { display: block; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 2px; }
+.details ul { margin: 0; padding-left: 18px; }
+.details .chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.unit .diffwrap { border-top: 1px solid var(--border); }
+.unit.dim .diffwrap { display: none; }
+ul.lk-factors { margin: 4px 0; padding-left: 18px; }
+ul.lk-factors li { margin: 1px 0; }

@@ -1,0 +1,225 @@
+// Walkthrough tab: one unit per step, most important first, with the
+// explanation beside the code.
+import { $, esc, LABEL, headline } from "./util.js";
+import { S, render, allUnits } from "./state.js";
+import { SEV_CLASS, SEV_RANK, issueCapChip, issueScenarioHTML, risk, impactPill, likelihoodPill, attentionPill, decisionChips, scoresHTML, classificationHTML, movesHTML } from "./scores.js";
+import { unitRows, diffTable } from "./diff.js";
+import { issueDraftButton } from "./comments.js";
+import { openPanel } from "./panel.js";
+
+// Steps are ordered by bucket, then score, then review attention, then risk
+// (impact times likelihood), then file order. "no review" units only on request.
+const BRANK = { human: 0, summary: 1, none: 2 };
+
+function steps() {
+  return allUnits()
+    .map((x, i) => ({ ...x, i }))
+    .filter(({ u }) => S.wz.all || u.decision.bucket !== "none")
+    .sort((a, b) => BRANK[a.u.decision.bucket] - BRANK[b.u.decision.bucket]
+      || (b.u.score?.total ?? 0) - (a.u.score?.total ?? 0)
+      || (b.u.attention || 0) - (a.u.attention || 0)
+      || risk(b.u) - risk(a.u)
+      || a.i - b.i);
+}
+
+// Progress is kept per result, so a reload resumes where the reviewer left off.
+const storeKey = () => `pr-triage.walk.${S.result.key}`;
+export function loadProgress() {
+  const saved = JSON.parse(localStorage.getItem(storeKey()) || "{}");
+  Object.assign(S.wz, { cur: saved.cur || null, done: new Set(saved.done || []), finished: false });
+}
+const save = () => localStorage.setItem(storeKey(), JSON.stringify({ cur: S.wz.cur, done: [...S.wz.done] }));
+
+// current is the index of the shown step: the saved one, else the first
+// unreviewed one.
+function current(st) {
+  const i = st.findIndex((s) => s.u.id === S.wz.cur);
+  if (i >= 0) return i;
+  const open = st.findIndex((s) => !S.wz.done.has(s.u.id));
+  return open >= 0 ? open : 0;
+}
+
+// HEADER_H is the sticky page header.
+const HEADER_H = 54;
+
+// go shows step i. When the page is scrolled past the card, it scrolls back
+// to the card's top so the new step is read from its start.
+function go(i) {
+  const st = steps();
+  if (!st.length) return;
+  S.wz.cur = st[Math.max(0, Math.min(st.length - 1, i))].u.id;
+  S.wz.finished = false;
+  S.composer = null;
+  save();
+  render();
+  const card = $(".wz-card");
+  if (!card) return;
+  const top = card.getBoundingClientRect().top + card.clientTop; // inside the colored top border
+  if (top < HEADER_H) window.scrollTo({ top: top + window.scrollY - HEADER_H });
+}
+const step = (d) => go(current(steps()) + d);
+
+function toggleReviewed() {
+  const st = steps();
+  if (!st.length) return;
+  const id = st[current(st)].u.id;
+  S.wz.done.has(id) ? S.wz.done.delete(id) : S.wz.done.add(id);
+  save();
+  render();
+}
+
+// markAndNext marks the current step reviewed and moves to the next step.
+// After the last step it shows the finish screen when everything is
+// reviewed, else the first step still open.
+function markAndNext() {
+  const st = steps();
+  if (!st.length) return;
+  const i = current(st);
+  S.wz.done.add(st[i].u.id);
+  if (i < st.length - 1) { go(i + 1); return; }
+  const open = st.findIndex((s) => !S.wz.done.has(s.u.id));
+  if (open >= 0) { go(open); return; }
+  S.wz.finished = true;
+  save();
+  render();
+  window.scrollTo({ top: 0 });
+}
+
+const worstFirst = (issues) => [...issues].sort((a, b) => (SEV_RANK[a.severity] ?? 9) - (SEV_RANK[b.severity] ?? 9));
+
+function rankWhy(u) {
+  const p = [LABEL[u.decision.bucket]];
+  const n = u.issues?.length || 0;
+  if (n) p.push(`${n} issue${n > 1 ? "s" : ""}, worst ${worstFirst(u.issues)[0].severity}`);
+  if (u.reviewed) p.push(`attention ${u.attention}`);
+  if (u.impact && u.impact.level !== "unknown") p.push(`impact ${u.impact.score}`);
+  if (u.likelihood) p.push(`likelihood ${u.likelihood.score}${u.likelihood.factors?.length ? ` (${u.likelihood.factors[0].detail})` : ""}`);
+  return p.join(" · ");
+}
+
+// issueCard is one review issue; shown is the set of new-file lines in the
+// diff, so "show line" only appears when there's a line to scroll to.
+function issueCard(f, u, is, shown) {
+  const i = u.issues.indexOf(is), sev = SEV_CLASS[is.severity] || "high";
+  const acts = [];
+  if (is.line && shown.has(is.line)) acts.push(`<button class="linkbtn" data-act="wz-line" data-line="${is.line}">show line ${is.line}</button>`);
+  else if (is.line) acts.push(`<span class="chip">line ${is.line}</span>`);
+  acts.push(issueDraftButton(f, u, i));
+  const a = acts.join("");
+  return `<div class="wz-issue ${sev}"><div class="it"><span class="dz ${sev}">${esc(is.severity)}</span><span dir="auto">${esc(is.title)}${issueCapChip(is)}</span></div>
+    ${is.detail ? `<div class="idt" dir="auto">${esc(is.detail)}</div>` : ""}${issueScenarioHTML(is, "idt")}${a ? `<div class="ia">${a}</div>` : ""}</div>`;
+}
+
+function explainHTML(f, u, shown) {
+  const d = u.decision, parts = [];
+  if (u.issues?.length) {
+    parts.push(`<div class="wz-sec"><h4>Issues found in review</h4>${worstFirst(u.issues).map((is) => issueCard(f, u, is, shown)).join("")}</div>`);
+  } else if (u.reviewed) {
+    parts.push(`<div class="wz-sec"><h4>Review</h4><span class="wz-clean">✓ No issues found</span></div>`);
+  }
+  if (u.summary) parts.push(`<div class="wz-sec"><h4>${d.bucket === "human" ? "Review notes" : "Summary"}</h4><p dir="auto">${esc(u.summary)}</p></div>`);
+  if (u.focus?.length) parts.push(`<div class="wz-sec"><h4>What to check</h4><ul class="wz-check">${u.focus.map((x) => `<li dir="auto">${esc(x)}</li>`).join("")}</ul></div>`);
+  parts.push(`<div class="wz-sec"><h4>Why it's here</h4><p><b>${esc(rankWhy(u))}</b></p>${movesHTML(u)}${d.reason ? `<p><span class="lbl">Classifier</span>${esc(d.reason)}</p>` : ""}</div>`);
+  parts.push(`<details class="wz-sec wz-more"><summary>Impact, likelihood and classification</summary>${scoresHTML(u)}${classificationHTML(d)}</details>`);
+  return parts.join("");
+}
+
+function progressHTML(st, i, toggle) {
+  const done = st.filter((s) => S.wz.done.has(s.u.id)).length;
+  const dots = st.map((s, j) => {
+    const ok = S.wz.done.has(s.u.id);
+    return `<button class="wz-dot ${s.u.decision.bucket} ${ok ? "done" : ""} ${j === i && !S.wz.finished ? "cur" : ""}"
+      data-act="wz-go" data-i="${j}" title="${esc(`${j + 1}. ${s.u.id}\n${headline(s.u)}`)}">${ok ? "✓" : j + 1}</button>`;
+  }).join("");
+  return `
+    <div class="wz-top"><span><b>${done}</b> of <b>${st.length}</b> reviewed</span><span class="spacer"></span>${toggle}
+      <span class="seg"><button class="${S.wz.view === "split" ? "on" : ""}" data-act="wz-view" data-v="split">Split</button><button class="${S.wz.view === "unified" ? "on" : ""}" data-act="wz-view" data-v="unified">Unified</button></span></div>
+    <div class="wz-prog"><div style="width:${(100 * done) / st.length}%"></div></div>
+    <div class="wz-steps">${dots}</div>`;
+}
+
+function finishHTML(st) {
+  const nd = S.drafts.length;
+  return `<div class="wz-card none"><div class="wz-finish">
+    <h2>All ${st.length} steps reviewed</h2>
+    <p>${nd ? `${nd} pending comment${nd > 1 ? "s" : ""} ready to submit.` : "No pending comments."}</p>
+    <div class="actions"><button data-act="wz-go" data-i="0">Back to step 1</button><button data-act="wz-reset">Start over</button>
+      <button class="primary" data-act="wz-submit">Submit review…</button></div></div></div>`;
+}
+
+function cardHTML(st, i) {
+  const { u, f } = st[i];
+  const b = u.decision.bucket;
+  const rows = unitRows(f, u);
+  const issueLines = new Set((u.issues || []).map((x) => x.line).filter(Boolean));
+  const shown = new Set();
+  rows.forEach((r) => {
+    if (r.t === "del" || !r.n) return;
+    shown.add(r.n);
+    if (issueLines.has(r.n)) r.iss = true;
+  });
+  const isDone = S.wz.done.has(u.id);
+  const fd = S.drafts.filter((d) => d.path === f.path).length;
+  return `
+    <div class="wz-card ${b}">
+      <div class="wz-head">
+        <div class="wz-where"><span class="pill ${b}">${LABEL[b]}</span><b>Step ${i + 1} of ${st.length}</b> ·
+          <span class="path">${f.old_path && f.old_path !== f.path ? esc(f.old_path) + " → " : ""}${esc(f.path)}${u.line ? `:${u.line}` : ""}</span>
+          ${u.symbol ? `<span class="sym">${esc(u.symbol)}</span>` : ""}<span class="status chip">${esc(f.status)}</span></div>
+        <div class="wz-headline" dir="auto">${esc(headline(u))}</div>
+        <div class="row">${impactPill(u.impact)}${likelihoodPill(u.likelihood)}${attentionPill(u)}${decisionChips(u)}</div>
+      </div>
+      <div class="wz-body">
+        <section class="wz-explain">${explainHTML(f, u, shown)}</section>
+        <section class="wz-code">
+          <div class="wz-codebar"><span>${esc(u.id)}</span><span class="spacer"></span>${fd ? `<span class="pill draft">${fd} comment${fd > 1 ? "s" : ""} in this file</span>` : ""}<span>hover a line and click + to comment</span></div>
+          ${diffTable(f, rows, S.wz.view)}
+        </section>
+      </div>
+      <div class="wz-nav">
+        <button data-act="wz-prev" ${i === 0 ? "disabled" : ""}>← Previous</button>
+        <button data-act="wz-next" ${i === st.length - 1 ? "disabled" : ""}>Next →</button>
+        <span class="keys"><kbd>←</kbd> <kbd>→</kbd> move · <kbd>x</kbd> toggle reviewed · <kbd>r</kbd> reviewed and next</span>
+        <span class="spacer"></span>
+        <label class="wz-reviewed ${isDone ? "on" : ""}"><input type="checkbox" data-act="wz-toggle" ${isDone ? "checked" : ""}> Reviewed</label>
+        <button class="primary" data-act="wz-mark">✓ Reviewed, next →</button>
+      </div>
+    </div>`;
+}
+
+export function walkHTML() {
+  const st = steps();
+  const nNone = allUnits().filter(({ u }) => u.decision.bucket === "none").length;
+  const toggle = nNone ? `<label><input type="checkbox" data-act="wz-all" ${S.wz.all ? "checked" : ""}> include ${nNone} no-review unit${nNone > 1 ? "s" : ""}</label>` : "";
+  if (!st.length) return `<div class="wz-top">${toggle}</div><div class="empty">Nothing in this PR needs review.</div>`;
+  const i = current(st);
+  return progressHTML(st, i, toggle) + (S.wz.finished ? finishHTML(st) : cardHTML(st, i));
+}
+
+export const actions = {
+  "wz-go": (el) => { go(+el.dataset.i); return false; },
+  "wz-prev": () => { step(-1); return false; },
+  "wz-next": () => { step(1); return false; },
+  "wz-mark": () => { markAndNext(); return false; },
+  "wz-toggle": () => { toggleReviewed(); return false; },
+  "wz-reset": () => { S.wz.done.clear(); S.wz.cur = null; go(0); return false; },
+  "wz-all": (el) => { S.wz.all = el.checked; },
+  "wz-view": (el) => { S.wz.view = el.dataset.v; localStorage.setItem("pr-triage.wzview", S.wz.view); },
+  "wz-submit": () => { openPanel(); return false; },
+  "wz-line": (el) => {
+    const row = document.querySelector(`.wz-code tr[data-iss="${+el.dataset.line}"]`);
+    if (row) { row.scrollIntoView({ block: "center", behavior: "smooth" }); row.classList.add("flash"); }
+    return false;
+  },
+};
+
+export function onKeydown(e) {
+  if (S.tab !== "walk" || !S.result || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target.closest?.("input, textarea, select")) return;
+  if (e.key === "ArrowRight" || e.key === "j") S.wz.finished ? go(current(steps())) : step(1);
+  else if (e.key === "ArrowLeft" || e.key === "k") S.wz.finished ? go(current(steps())) : step(-1);
+  else if (e.key === "r" && !S.wz.finished) markAndNext();
+  else if (e.key === "x" && !S.wz.finished) toggleReviewed();
+  else return;
+  e.preventDefault();
+}
