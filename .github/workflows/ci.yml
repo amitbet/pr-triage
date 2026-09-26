@@ -48,11 +48,18 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          # A separate cache key from the desktop jobs. They finish first and
-          # would otherwise save a cache without the cross-compiled packages.
-          cache-dependency-path: |
-            go.sum
-            .goreleaser.yaml
+          cache: false
+      # A separate cache from the desktop jobs. They finish first and would
+      # otherwise save a cache without the cross-compiled packages. When the
+      # key changes, restore-keys starts from the last CLI cache instead of
+      # rebuilding all six targets from scratch.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: cli-${{ runner.os }}-${{ runner.arch }}-go-${{ hashFiles('go.mod', 'go.sum', '.goreleaser.yaml') }}
+          restore-keys: cli-${{ runner.os }}-${{ runner.arch }}-go-
       - name: Vet and test pure Go path
         run: go vet ./... && go test ./...
       - name: Smoke-test serve
