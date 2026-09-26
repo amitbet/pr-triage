@@ -241,6 +241,7 @@ jobs:
           for attempt in 1 2 3; do
             git fetch origin main
             git checkout -B main origin/main
+            mkdir -p Casks
             cp "$RUNNER_TEMP/cli-release/homebrew/Casks/pr-manager.rb" Casks/pr-manager.rb
             git add Casks/pr-manager.rb
             if git diff --cached --quiet; then exit 0; fi
@@ -283,6 +284,7 @@ jobs:
           for attempt in 1 2 3; do
             git fetch origin main
             git checkout -B main origin/main
+            mkdir -p Casks
             bash scripts/desktop-cask.sh "$RELEASE_TAG" "$RUNNER_TEMP/desktop-release/PR-Manager-macos-arm64.zip" > Casks/pr-manager-desktop.rb
             git add Casks/pr-manager-desktop.rb
             if git diff --cached --quiet; then exit 0; fi
