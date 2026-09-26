@@ -13,11 +13,11 @@ concurrency:
   cancel-in-progress: true
 jobs:
   cli:
-    name: CLI build (${{ matrix.os }})
+    name: CLI checks (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -28,15 +28,9 @@ jobs:
         run: go vet ./...
       - name: Test
         run: go test ./...
-      - name: Build CLI
-        if: runner.os != 'Windows'
-        run: go build -o "$RUNNER_TEMP/pr-triage" .
-      - name: Build CLI on Windows
-        if: runner.os == 'Windows'
-        run: go build -o "$env:RUNNER_TEMP\pr-triage.exe" .
-      - name: Smoke-test CLI
-        if: runner.os != 'Windows'
+      - name: Build and smoke-test CLI
         run: |
+          go build -o "$RUNNER_TEMP/pr-triage" .
           python3 scripts/smoke-release.py "$RUNNER_TEMP/pr-triage"
   snapshot:
     name: CLI release snapshot
@@ -92,10 +86,6 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: go test -tags '${{ matrix.test_tags }}' ./...
-      - name: Test cgo parser and app on Windows
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
-        run: go test -tags desktop ./...
       - name: Build desktop app
         if: runner.os != 'Windows'
         shell: bash
@@ -104,6 +94,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: bash scripts/build-desktop.sh
+      - name: Test cgo parser and app on Windows
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: go test -tags desktop ./...
       - uses: actions/upload-artifact@v4
         with:
           name: pr-triage-${{ matrix.artifact }}

@@ -3,6 +3,7 @@ package triage
 import (
 	"errors"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -85,8 +86,8 @@ func TestPRRefKeys(t *testing.T) {
 	if ent.FileKey() != "ghe.corp.example__acme__api__5" || ent.RepoArg() != "ghe.corp.example/acme/api" {
 		t.Errorf("enterprise ref: key %s, repo %s", ent.FileKey(), ent.RepoArg())
 	}
-	f := &PRFetcher{Dir: "/c"}
-	if f.RepoDir(gh) != "/c/acme/api" || f.RepoDir(ent) != "/c/ghe.corp.example/acme/api" {
+	f := &PRFetcher{Dir: t.TempDir()}
+	if f.RepoDir(gh) != filepath.Join(f.Dir, "acme", "api") || f.RepoDir(ent) != filepath.Join(f.Dir, "ghe.corp.example", "acme", "api") {
 		t.Errorf("clone dirs %s, %s", f.RepoDir(gh), f.RepoDir(ent))
 	}
 }

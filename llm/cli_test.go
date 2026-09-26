@@ -3,10 +3,11 @@ package llm
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -63,17 +64,35 @@ func TestStructuredResponseDropsNulls(t *testing.T) {
 	}
 }
 
-// fakeCLI writes a script that records its args and working directory and
-// prints out.
+// fakeCLI builds a local executable that records its args and working
+// directory, then prints the configured response.
 func fakeCLI(t *testing.T, out string) (bin, argsFile string) {
 	t.Helper()
 	dir := t.TempDir()
 	argsFile = filepath.Join(dir, "args")
 	bin = filepath.Join(dir, "cli")
-	script := fmt.Sprintf("#!/bin/sh\npwd > %q\nfor a in \"$@\"; do echo \"$a\" >> %q; done\ncat > /dev/null\necho %q\n", argsFile+".cwd", argsFile, out)
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
+	src := filepath.Join(dir, "cli.go")
+	const program = `package main
+import ("encoding/json"; "fmt"; "io"; "os")
+func main() {
+	args, _ := json.Marshal(os.Args[1:])
+	_ = os.WriteFile(os.Getenv("PR_TRIAGE_FAKE_CLI_ARGS"), args, 0600)
+	cwd, _ := os.Getwd()
+	_ = os.WriteFile(os.Getenv("PR_TRIAGE_FAKE_CLI_ARGS")+".cwd", []byte(cwd), 0600)
+	_, _ = io.Copy(io.Discard, os.Stdin)
+	fmt.Println(os.Getenv("PR_TRIAGE_FAKE_CLI_OUT"))
+}`
+	if err := os.WriteFile(src, []byte(program), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if output, err := exec.Command("go", "build", "-o", bin, src).CombinedOutput(); err != nil {
+		t.Fatalf("build fake CLI: %v: %s", err, output)
+	}
+	t.Setenv("PR_TRIAGE_FAKE_CLI_ARGS", argsFile)
+	t.Setenv("PR_TRIAGE_FAKE_CLI_OUT", out)
 	return bin, argsFile
 }
 
@@ -92,7 +111,11 @@ func TestClaudeCodeWorkspaceEnablesReadOnlyTools(t *testing.T) {
 		_, prompt = cliPrompt([]ChatMessage{{Role: "user", Content: "hi"}}, tool, ws != nil)
 		b, _ := os.ReadFile(argsFile)
 		cwd, _ := os.ReadFile(argsFile + ".cwd")
-		return strings.Split(strings.TrimSpace(string(b)), "\n"), strings.TrimSpace(string(cwd)), prompt
+		var args []string
+		if err := json.Unmarshal(b, &args); err != nil {
+			t.Fatal(err)
+		}
+		return args, strings.TrimSpace(string(cwd)), prompt
 	}
 	flag := func(args []string, name string) []string {
 		var vals []string
@@ -119,7 +142,9 @@ func TestClaudeCodeWorkspaceEnablesReadOnlyTools(t *testing.T) {
 	if got := flag(args, "--add-dir"); len(got) != 1 || got[0] != lib {
 		t.Errorf("--add-dir = %q", got)
 	}
-	if real, _ := filepath.EvalSymlinks(repo); cwd != real && cwd != repo {
+	gotDir, gotErr := os.Stat(cwd)
+	wantDir, wantErr := os.Stat(repo)
+	if gotErr != nil || wantErr != nil || !os.SameFile(gotDir, wantDir) {
 		t.Errorf("cwd = %q, want %q", cwd, repo)
 	}
 	if strings.Contains(prompt, "do not run commands") {

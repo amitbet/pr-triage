@@ -26,7 +26,7 @@ func TestApplyFixPatchAndSelectChangedUnit(t *testing.T) {
 		t.Fatal(err)
 	}
 	content, err := os.ReadFile(path)
-	if err != nil || string(content) != "package a\n\nfunc f() int { return 1 }\n" {
+	if err != nil || strings.ReplaceAll(string(content), "\r\n", "\n") != "package a\n\nfunc f() int { return 1 }\n" {
 		t.Fatalf("file = %q, %v", content, err)
 	}
 	near := &triage.Unit{File: "a.go", Hunks: []triage.Hunk{{NewStart: 1, NewLines: 5}}}
