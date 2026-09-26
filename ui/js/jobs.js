@@ -11,6 +11,23 @@ let onDone = async () => {};
 let onFinished = () => {};
 let timer = null;
 const status = new Map(); // job id -> last seen status
+let triaging = []; // running triage jobs
+
+// A triage job's url is the PR link or local path it was started with.
+const same = (a, b) => !!a && !!b && a.trim().replace(/\/+$/, "").toLowerCase() === b.trim().replace(/\/+$/, "").toLowerCase();
+
+// triageJobFor returns the running triage job for a PR link or local path,
+// if there is one.
+export async function triageJobFor(src) {
+  await refreshJobs();
+  return triaging.find((j) => same(j.url, src));
+}
+
+// markTriaging flags the sidebar's results that are being triaged again.
+export function markTriaging() {
+  document.querySelectorAll("#list .pr-item").forEach((el) =>
+    el.classList.toggle("triaging", triaging.some((j) => same(j.url, el.dataset.src))));
+}
 
 // initJobs sets what opens a finished job's result (its key) and what runs
 // when any job finishes (refreshing the results list).
@@ -49,6 +66,7 @@ export async function watchJob(id) {
     for (;;) {
       const j = await api(`/api/jobs/${id}`);
       if (!view.isConnected) return;
+      document.querySelectorAll("#list .pr-item").forEach((el) => el.classList.toggle("active", same(el.dataset.src, j.url)));
       await refreshLog().catch(() => {});
       if (!view.isConnected) return;
       if (j.status === "done" && j.key) { refreshJobs(); await onDone(j.key); return; }
@@ -83,6 +101,8 @@ export async function refreshJobs() {
     status.set(j.id, j.status);
   }
   if (finished) onFinished();
+  triaging = jobs.filter((j) => j.kind === "triage" && j.status === "running");
+  markTriaging();
   const shown = jobs.filter((j) => j.status === "running" || (j.status === "error" && Date.now() - new Date(j.started) < FAILED_FOR));
   const active = watched() ? $("#jobs .job-item.active")?.dataset.id : null;
   $("#jobs-head").hidden = !shown.length;

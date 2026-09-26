@@ -2,6 +2,7 @@
 import { $, esc, api, pills } from "./util.js";
 import { S, repoName } from "./state.js";
 import { impactPill, likelihoodPill } from "./scores.js";
+import { markTriaging } from "./jobs.js";
 
 // Collapsed repo sections, remembered across reloads.
 const collapsedRepos = new Set(JSON.parse(localStorage.getItem("pr-manager.collapsedRepos") || "[]"));
@@ -9,12 +10,13 @@ const saveCollapsedRepos = () => localStorage.setItem("pr-manager.collapsedRepos
 
 let onPick = () => {};
 
-// initSidebar sets what happens when a PR is picked (its result key).
+// initSidebar sets what happens when a PR is picked (its result key, and
+// the PR link or local path it was triaged from).
 export function initSidebar(pick) {
   onPick = pick;
   $("#list").addEventListener("click", (e) => {
     const item = e.target.closest(".pr-item");
-    if (item) { onPick(item.dataset.key); return; }
+    if (item) { onPick(item.dataset.key, item.dataset.src); return; }
     const head = e.target.closest(".repo-head");
     if (!head) return;
     const repo = head.dataset.repo;
@@ -52,10 +54,11 @@ export async function loadList() {
         <span class="rc" title="${prs.length} results, ${human} units need human review">${prs.length}</span>
       </button>
       <div class="repo-prs">${prs.map((r) => `
-        <a class="pr-item ${S.result?.key === r.key ? "active" : ""}" data-key="${esc(r.key)}">
+        <a class="pr-item ${S.result?.key === r.key ? "active" : ""}" data-key="${esc(r.key)}" data-src="${esc(r.local_path || `https://${r.pr.host || "github.com"}/${r.pr.owner}/${r.pr.repo}/pull/${r.pr.number}`)}">
           <span class="t">${r.local_path ? esc(r.head_ref) : `#${r.pr.number}`} ${esc(r.title)}</span>
           <span class="m">${pills(r.counts)} ${r.impact ? impactPill(r.impact, "imp") : ""}${r.likelihood ? likelihoodPill(r.likelihood, "lik") : ""} <span>${esc(r.state.toLowerCase())}</span> <span title="${esc(r.classifier)}">· ${esc(r.classifier.split("/").pop())}</span></span>
         </a>`).join("")}</div>
     </div>`;
   }).join("") || `<div class="empty">none yet</div>`;
+  markTriaging();
 }

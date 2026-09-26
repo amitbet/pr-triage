@@ -18,7 +18,7 @@ import { initSidebar, loadList } from "./sidebar.js";
 import { initTriage, triageURL } from "./triage.js";
 import { initSettings, refreshSettings } from "./settings.js";
 import { actions as fixActions } from "./fix.js";
-import { initJobs } from "./jobs.js";
+import { initJobs, triageJobFor, watchJob } from "./jobs.js";
 import { translate } from "./translate.js";
 import * as budget from "./budget.js";
 
@@ -99,6 +99,14 @@ async function showKey(key) {
   translate();
 }
 
+// openResult shows a result, or the log of the triage that is replacing it
+// while that runs.
+async function openResult(key, src) {
+  const job = await triageJobFor(src);
+  if (job) watchJob(job.id);
+  else await showKey(key);
+}
+
 $("#main").addEventListener("click", async (e) => {
   const el = e.target.closest("[data-act]");
   const handler = el && actions[el.dataset.act];
@@ -111,7 +119,7 @@ document.addEventListener("keydown", walkKeydown);
 
 (async () => {
   S.cfg = await api("/api/config").catch(() => null);
-  initSidebar(showKey);
+  initSidebar(openResult);
   initPanel(showDraft);
   initTriage();
   initJobs(showKey, loadList);
@@ -119,6 +127,6 @@ document.addEventListener("keydown", walkKeydown);
   await loadList();
   const q = new URLSearchParams(location.search);
   if (TABS.some((t) => t.id === q.get("tab"))) S.tab = q.get("tab");
-  if (q.get("key")) await showKey(q.get("key")).catch(() => {});
+  if (q.get("key")) await openResult(q.get("key"), q.get("pr") || q.get("path")).catch(() => {});
   else if (q.get("pr") || q.get("path")) triageURL(q.get("pr") || q.get("path"));
 })();

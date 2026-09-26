@@ -59,6 +59,7 @@ aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; co
 .pr-item { display: block; padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--fg); cursor: pointer; }
 .pr-item:hover { background: var(--bg3); text-decoration: none; }
 .pr-item.active { background: var(--bg3); box-shadow: inset 3px 0 var(--accent); }
+.pr-item.triaging .t::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--accent); vertical-align: middle; animation: act-pulse 1s infinite alternate; }
 .pr-item .t { display: block; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pr-item .m { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; font-size: 12px; color: var(--muted); align-items: center; }
 .job-item { display: block; padding: 7px 12px; border-bottom: 1px solid var(--border); color: var(--fg); cursor: pointer; }
