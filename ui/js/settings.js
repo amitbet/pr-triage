@@ -3,6 +3,7 @@
 import { $, esc, api, LABEL } from "./util.js";
 import { S } from "./state.js";
 import * as budget from "./budget.js";
+import { refreshJobs } from "./jobs.js";
 
 // Provider and model pickers. The server lists only the providers this
 // machine can run (a logged-in CLI, an API key that is set, a running Ollama
@@ -178,6 +179,7 @@ async function runIndex() {
     const res = await fetch("/api/codemap/index", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(codeSources()) });
     let j = await res.json();
     if (!res.ok) throw new Error(j.error || res.statusText);
+    refreshJobs();
     while (j.status === "running") {
       status.textContent = j.stage === "clone" && j.total ? `cloning ${j.done + 1}/${j.total}…` : `${j.stage || "starting"}…`;
       await new Promise((r) => setTimeout(r, 1000));

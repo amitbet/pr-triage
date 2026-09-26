@@ -111,15 +111,17 @@ type triager struct {
 }
 
 type job struct {
-	ID     string `json:"id"`
-	URL    string `json:"url"`
-	Status string `json:"status"` // running | done | error
-	Stage  string `json:"stage"`
-	Done   int    `json:"done"`
-	Total  int    `json:"total"`
-	Error  string `json:"error,omitempty"`
-	Key    string `json:"key,omitempty"`
-	Result any    `json:"result,omitempty"` // index jobs
+	ID      string    `json:"id"`
+	Kind    string    `json:"kind"` // triage | fix | index
+	URL     string    `json:"url"`
+	Started time.Time `json:"started"`
+	Status  string    `json:"status"` // running | done | error
+	Stage   string    `json:"stage"`
+	Done    int       `json:"done"`
+	Total   int       `json:"total"`
+	Error   string    `json:"error,omitempty"`
+	Key     string    `json:"key,omitempty"`
+	Result  any       `json:"result,omitempty"` // index jobs
 
 	log *activity.Log
 }
@@ -361,10 +363,10 @@ func (t *triager) List() ([]prSummary, error) {
 
 // newJob registers a running job. The context carries the job's activity
 // log; progress also logs each new stage to it.
-func (t *triager) newJob(url string) (*job, context.Context, func(stage string, done, total int)) {
+func (t *triager) newJob(kind, url string) (*job, context.Context, func(stage string, done, total int)) {
 	var idb [6]byte
 	_, _ = rand.Read(idb[:])
-	j := &job{ID: hex.EncodeToString(idb[:]), URL: url, Status: "running", log: activity.New()}
+	j := &job{ID: hex.EncodeToString(idb[:]), Kind: kind, URL: url, Started: time.Now(), Status: "running", log: activity.New()}
 	t.mu.Lock()
 	t.jobs[j.ID] = j
 	t.mu.Unlock()
@@ -387,7 +389,7 @@ func (j *job) finish(err error) { j.log.Close(err) }
 // startIndex runs indexSources as a job; the job's Result is the summary.
 func (t *triager) startIndex(jo jobOptions) *job {
 	o := t.options(jo)
-	j, ctx, progress := t.newJob("index")
+	j, ctx, progress := t.newJob("index", "index")
 	go func() {
 		res, err := indexSources(ctx, o, progress)
 		j.finish(err)
@@ -409,7 +411,7 @@ func (t *triager) start(url string, jo jobOptions) (*job, error) {
 	if err != nil {
 		return nil, err
 	}
-	j, ctx, progress := t.newJob(ref.URL())
+	j, ctx, progress := t.newJob("triage", ref.URL())
 	go func() {
 		r, err := t.Run(ctx, ref, jo, progress)
 		j.finish(err)
@@ -435,6 +437,18 @@ func (t *triager) jobLog(id string) ([]activity.Thread, bool) {
 		return nil, false
 	}
 	return j.log.Snapshot(), true
+}
+
+// jobList is every job of this server run, newest first.
+func (t *triager) jobList() []job {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	out := make([]job, 0, len(t.jobs))
+	for _, j := range t.jobs {
+		out = append(out, *j)
+	}
+	sort.Slice(out, func(a, b int) bool { return out[a].Started.After(out[b].Started) })
+	return out
 }
 
 func (t *triager) job(id string) (job, bool) {
@@ -581,6 +595,9 @@ func newServeHandler(o options) (http.Handler, error) {
 			return
 		}
 		writeJSON(w, 202, j)
+	})
+	mux.HandleFunc("GET /api/jobs", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, t.jobList())
 	})
 	mux.HandleFunc("GET /api/jobs/{id}", func(w http.ResponseWriter, r *http.Request) {
 		j, ok := t.job(r.PathValue("id"))

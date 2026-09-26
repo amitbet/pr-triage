@@ -61,6 +61,16 @@ aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; co
 .pr-item.active { background: var(--bg3); box-shadow: inset 3px 0 var(--accent); }
 .pr-item .t { display: block; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pr-item .m { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; font-size: 12px; color: var(--muted); align-items: center; }
+.job-item { display: block; padding: 7px 12px; border-bottom: 1px solid var(--border); color: var(--fg); cursor: pointer; }
+.job-item:hover { background: var(--bg3); text-decoration: none; }
+.job-item.active { background: var(--bg3); box-shadow: inset 3px 0 var(--accent); }
+.job-item .t { display: flex; align-items: center; gap: 6px; font-size: 13px; font-family: var(--mono); overflow: hidden; white-space: nowrap; }
+.job-item .m { display: flex; gap: 6px; margin-top: 3px; font-size: 12px; color: var(--muted); align-items: center; overflow: hidden; white-space: nowrap; }
+.job-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--accent); animation: act-pulse 1s infinite alternate; }
+.job-item[data-status="error"] .job-dot { background: var(--human); animation: none; }
+.job-item[data-status="error"] .m { color: var(--human); }
+.job-item .u { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.job-kind { font-size: 11px; font-weight: 600; text-transform: uppercase; background: var(--bg3); border-radius: 4px; padding: 0 6px; flex: none; }
 main { padding: 16px 24px 80px; min-width: 0; }
 .pill { display: inline-block; padding: 0 8px; border-radius: 10px; font-size: 12px; font-weight: 600; line-height: 20px; }
 .pill.human { color: var(--human); background: var(--human-bg); }

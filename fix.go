@@ -57,7 +57,7 @@ func (t *triager) startFix(req fixRequest) (*job, error) {
 	if len(fixTargets(r, req)) == 0 {
 		return nil, errors.New("no matching review issues")
 	}
-	j, ctx, progress := t.newJob(r.PR.URL)
+	j, ctx, progress := t.newJob("fix", r.PR.URL)
 	go func() {
 		res, err := t.runFix(ctx, j.ID, r, req, progress)
 		j.finish(err)

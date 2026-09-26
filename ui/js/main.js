@@ -17,7 +17,8 @@ import { initPanel, renderPanel, panelOpen, closePanel, updateReviewButton } fro
 import { initSidebar, loadList } from "./sidebar.js";
 import { initTriage, triageURL } from "./triage.js";
 import { initSettings, refreshSettings } from "./settings.js";
-import { initFix, actions as fixActions } from "./fix.js";
+import { actions as fixActions } from "./fix.js";
+import { initJobs } from "./jobs.js";
 import * as budget from "./budget.js";
 
 // TABS are the views of a triaged PR. mount runs after the tab's HTML is on
@@ -110,8 +111,8 @@ document.addEventListener("keydown", walkKeydown);
   S.cfg = await api("/api/config").catch(() => null);
   initSidebar(showKey);
   initPanel(showDraft);
-  initTriage(showKey);
-  initFix(showKey);
+  initTriage();
+  initJobs(showKey, loadList);
   initSettings(() => { if (S.result) { budget.apply(S.result, S.cfg); render(); } });
   await loadList();
   const q = new URLSearchParams(location.search);
