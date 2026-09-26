@@ -1,10 +1,10 @@
 version: 2
-project_name: pr-triage
+project_name: pr-manager
 
 builds:
-  - id: pr-triage
+  - id: pr-manager
     main: .
-    binary: pr-triage
+    binary: pr-manager
     env: [CGO_ENABLED=0]
     goos: [darwin, linux, windows]
     goarch: [amd64, arm64]
@@ -37,22 +37,22 @@ changelog:
 
 # The tap is this repository: the cask is committed to Casks/ on the default
 # branch. Install with
-#   brew tap amitbet/pr-triage https://github.com/amitbet/pr-triage
-#   brew install --cask amitbet/pr-triage/pr-triage
+#   brew tap amitbet/pr-manager https://github.com/amitbet/pr-manager
+#   brew install --cask amitbet/pr-manager/pr-manager
 homebrew_casks:
-  - name: pr-triage
-    binaries: [pr-triage]
+  - name: pr-manager
+    binaries: [pr-manager]
     directory: Casks
     repository:
       owner: amitbet
-      name: pr-triage
+      name: pr-manager
       branch: main
       token: '{{ .Env.GITHUB_TOKEN }}'
     commit_author:
       name: github-actions[bot]
       email: 41898282+github-actions[bot]@users.noreply.github.com
     commit_msg_template: 'Update Homebrew cask for {{ .ProjectName }} {{ .Tag }}'
-    homepage: https://github.com/amitbet/pr-triage
+    homepage: https://github.com/amitbet/pr-manager
     description: Sort pull request changes by the human review they need
     license: Apache-2.0
     skip_upload: auto
@@ -60,11 +60,11 @@ homebrew_casks:
       - formula: git
       - formula: gh
     caveats: |
-      Run `gh auth login`, then `pr-triage serve`.
+      Run `gh auth login`, then `pr-manager serve`.
       Install Go for full Go call graphs; otherwise indexing uses declarations only.
     hooks:
       post:
         install: |
           if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/pr-triage"]
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/pr-manager"]
           end

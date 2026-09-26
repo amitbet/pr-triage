@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/amitbet/pr-triage/codemap/decls"
+	"github.com/amitbet/pr-manager/codemap/decls"
 )
 
 // The Python extractor resolves imports to files the way the interpreter

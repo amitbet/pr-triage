@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/amitbet/pr-triage/triage"
+	"github.com/amitbet/pr-manager/triage"
 )
 
 func TestApplyFixPatchAndSelectChangedUnit(t *testing.T) {
@@ -90,7 +90,7 @@ func TestCheckoutFixBranchAtPRHead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if branch != "pr-triage/pr-7-def456" || strings.TrimSpace(git("-C", second, "branch", "--show-current")) != branch {
+	if branch != "pr-manager/pr-7-def456" || strings.TrimSpace(git("-C", second, "branch", "--show-current")) != branch {
 		t.Errorf("second worktree branch = %q", branch)
 	}
 }

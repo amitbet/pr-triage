@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/amitbet/pr-triage/llm"
+	"github.com/amitbet/pr-manager/llm"
 )
 
 func TestCriticFiltersAndRatesReviewIssues(t *testing.T) {

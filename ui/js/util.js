@@ -1,5 +1,14 @@
 // Small helpers shared by every component.
 
+// The project was called pr-triage. Carry its saved settings over once.
+// util.js has no imports, so this runs before any module reads a key.
+for (const k of Object.keys(localStorage)) {
+  if (!k.startsWith("pr-triage.")) continue;
+  const n = "pr-manager." + k.slice("pr-triage.".length);
+  if (localStorage.getItem(n) === null) localStorage.setItem(n, localStorage.getItem(k));
+  localStorage.removeItem(k);
+}
+
 export const $ = (s) => document.querySelector(s);
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 

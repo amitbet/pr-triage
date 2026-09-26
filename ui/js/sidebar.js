@@ -4,8 +4,8 @@ import { S, repoName } from "./state.js";
 import { impactPill, likelihoodPill } from "./scores.js";
 
 // Collapsed repo sections, remembered across reloads.
-const collapsedRepos = new Set(JSON.parse(localStorage.getItem("pr-triage.collapsedRepos") || "[]"));
-const saveCollapsedRepos = () => localStorage.setItem("pr-triage.collapsedRepos", JSON.stringify([...collapsedRepos]));
+const collapsedRepos = new Set(JSON.parse(localStorage.getItem("pr-manager.collapsedRepos") || "[]"));
+const saveCollapsedRepos = () => localStorage.setItem("pr-manager.collapsedRepos", JSON.stringify([...collapsedRepos]));
 
 let onPick = () => {};
 

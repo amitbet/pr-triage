@@ -385,7 +385,7 @@ export const actions = {
   "tm-scope": (el) => { S.tm.scope = el.dataset.scope; S.tm.zoom = []; },
   "tm-crumb": (el) => { S.tm.zoom = S.tm.zoom.slice(0, +el.dataset.depth); },
   "tm-sort": (el) => { S.tm.sort = el.dataset.sort; },
-  "tm-mode": (el) => { S.tm.mode = el.dataset.mode; localStorage.setItem("pr-triage.tmmode", S.tm.mode); },
+  "tm-mode": (el) => { S.tm.mode = el.dataset.mode; localStorage.setItem("pr-manager.tmmode", S.tm.mode); },
   "tm-unit": (el) => { jumpToUnit(el.dataset.unit); return false; },
 };
 

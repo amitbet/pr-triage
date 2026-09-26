@@ -50,7 +50,7 @@ func (c *CodexCLI) Call(ctx context.Context, req LLMRequest) (*LLMResponse, erro
 	if err != nil {
 		return nil, err
 	}
-	dir, err := os.MkdirTemp("", "pr-triage-codex-")
+	dir, err := os.MkdirTemp("", "pr-manager-codex-")
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +155,7 @@ func (c *ClaudeCodeCLI) Call(ctx context.Context, req LLMRequest) (*LLMResponse,
 	if err != nil {
 		return nil, err
 	}
-	dir, err := os.MkdirTemp("", "pr-triage-claude-")
+	dir, err := os.MkdirTemp("", "pr-manager-claude-")
 	if err != nil {
 		return nil, err
 	}

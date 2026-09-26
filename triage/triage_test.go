@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/amitbet/pr-triage/llm"
+	"github.com/amitbet/pr-manager/llm"
 )
 
 const sampleDiff = `diff --git a/svc/retry.go b/svc/retry.go

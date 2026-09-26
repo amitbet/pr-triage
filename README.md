@@ -1,4 +1,4 @@
-# pr-triage
+# pr-manager
 
 Sorts a branch's diff into three buckets:
 
@@ -36,7 +36,7 @@ Requires Go, git and an authenticated [gh](https://cli.github.com) (`gh auth log
    Set it with `tiers.review_budget` in `.triage.yaml` or `-review-budget`. Override single steps under `tiers.budgets`, and weights under `tiers.kind_weights`. Results store their scores, so the UI's budget slider re-buckets a PR without re-running it. Results cached before scores existed are re-scored when they load, with their stored bucket standing in for the classifier's call.
 9. **Render**: markdown (human, then skim, then collapsed none) or JSON.
 
-In the UI, each review issue has a **Fix issue** button, and the review toolbar has **Fix all issues**. By default, fixes are applied to a persistent local worktree under the app cache, on a branch created at the exact PR head commit. Settings can instead apply fixes directly in the cached local clone. That option checks out the PR head branch there and stops if the clone already has local changes. The PR's head branch name is used when available; a local `pr-triage/pr-N-...` branch is used if that name is already taken. The resulting review covers the issue's unit and units touched by the patch. The new result shows the branch and checkout path. Settings can keep fixing issues found by these follow-up reviews; recursion is on by default and stops after three fix and review rounds unless you change the limit.
+In the UI, each review issue has a **Fix issue** button, and the review toolbar has **Fix all issues**. By default, fixes are applied to a persistent local worktree under the app cache, on a branch created at the exact PR head commit. Settings can instead apply fixes directly in the cached local clone. That option checks out the PR head branch there and stops if the clone already has local changes. The PR's head branch name is used when available; a local `pr-manager/pr-N-...` branch is used if that name is already taken. The resulting review covers the issue's unit and units touched by the patch. The new result shows the branch and checkout path. Settings can keep fixing issues found by these follow-up reviews; recursion is on by default and stops after three fix and review rounds unless you change the limit.
 
 ## Installation
 
@@ -51,7 +51,7 @@ arm64, Linux amd64 and Windows amd64, see [desktop build](docs/desktop.md).
 With Homebrew (the tap lives in this repository):
 
 ```sh
-brew tap amitbet/pr-triage https://github.com/amitbet/pr-triage
+brew tap amitbet/pr-manager https://github.com/amitbet/pr-manager
 gh auth login
 ```
 
@@ -59,60 +59,60 @@ The desktop app (macOS, Apple silicon) opens the UI in its own window, so
 there's no server to start:
 
 ```sh
-brew install --cask amitbet/pr-triage/pr-triage-desktop
-open -a "PR Triage"
+brew install --cask amitbet/pr-manager/pr-manager-desktop
+open -a "PR Manager"
 ```
 
-It installs `PR Triage.app` into `/Applications`, pulls in `gh` and `git`, and
+It installs `PR Manager.app` into `/Applications`, pulls in `gh` and `git`, and
 removes quarantine, since the app is ad-hoc signed and not notarized.
 
 The CLI (macOS and Linux) runs the same UI in your browser, plus the triage,
 `prs` and `index` commands:
 
 ```sh
-brew install --cask amitbet/pr-triage/pr-triage
-pr-triage serve
+brew install --cask amitbet/pr-manager/pr-manager
+pr-manager serve
 ```
 
 ## Usage
 
 ```sh
-go build -o pr-triage .
+go build -o pr-manager .
 
 # default: a logged-in Codex (ChatGPT) or Claude Code subscription on this machine
-./pr-triage -C ../some-repo -base origin/main
+./pr-manager -C ../some-repo -base origin/main
 
 # Claude Code subscription: Haiku 4.5 classifies, Opus 5.5 summarizes
-./pr-triage -classifier claude-code -summarizer claude-code
+./pr-manager -classifier claude-code -summarizer claude-code
 
 # Claude API key: same models
-ANTHROPIC_API_KEY=... ./pr-triage -classifier anthropic -summarizer anthropic
+ANTHROPIC_API_KEY=... ./pr-manager -classifier anthropic -summarizer anthropic
 
 # OpenAI
-./pr-triage -classifier openai-api -summarizer openai-api
+./pr-manager -classifier openai-api -summarizer openai-api
 
 # fully local
-./pr-triage -classifier ollama -classify-model qwen3.5:9b -summarizer ollama -summary-model qwen3.5:9b
+./pr-manager -classifier ollama -classify-model qwen3.5:9b -summarizer ollama -summary-model qwen3.5:9b
 
 # OpenJev first pass; units it isn't sure about go to Claude
-./pr-triage -classifier openjev -fallback claude-api
+./pr-manager -classifier openjev -fallback claude-api
 
 # presort only, no LLM
-./pr-triage -classifier off -summarizer off
+./pr-manager -classifier off -summarizer off
 
 # write the PR description / gate a script
-./pr-triage -o triage.md && gh pr create --body-file triage.md
-./pr-triage -fail-on-human      # exit 2 if anything needs a human
-./pr-triage -out json -o triage.json
+./pr-manager -o triage.md && gh pr create --body-file triage.md
+./pr-manager -fail-on-human      # exit 2 if anything needs a human
+./pr-manager -out json -o triage.json
 ```
 
 Policy: copy `triage.example.yaml` to `<repo>/.triage.yaml`.
 
-`-codemap DIR` (default the user cache directory plus `pr-triage/codemap`, `off` to disable) picks the code map. PR runs use the GitHub repo name as the map repo. Local `-C` runs use the checkout's directory name, or `-map-repo`.
+`-codemap DIR` (default the user cache directory plus `pr-manager/codemap`, `off` to disable) picks the code map. PR runs use the GitHub repo name as the map repo. Local `-C` runs use the checkout's directory name, or `-map-repo`.
 
 ## Code map
 
-The code map is a CodeRank + rollback-difficulty index of your repos, built by `pr-triage index` / `pr-triage codemap` or the development wrapper `cmd/codemap`. See [codemap/README.md](codemap/README.md) for the metrics and file format.
+The code map is a CodeRank + rollback-difficulty index of your repos, built by `pr-manager index` / `pr-manager codemap` or the development wrapper `cmd/codemap`. See [codemap/README.md](codemap/README.md) for the metrics and file format.
 
 For development, `make codemap` indexes a workspace (a directory containing `code/<repo>`) into `.cache/map`:
 
@@ -123,19 +123,19 @@ make codemap-rank CODEMAP_CONFIG=my.yaml     # re-score after editing a scoring 
 make codemap-lookup TARGET='api/internal/user/server.go:(*Server).GetProfile'
 ```
 
-`WORKSPACE` defaults to `PR_TRIAGE_WORKSPACE`.
+`WORKSPACE` defaults to `PR_MANAGER_WORKSPACE`.
 
 ### Indexing your own repos
 
 The map is built from two sources, set with flags, environment variables or the UI's Settings → *Code map*:
 
-- **Local code directory** (`-code-root DIR`, `PR_TRIAGE_CODE_ROOT`): the git checkouts in `DIR/<repo>` or `DIR/<org>/<repo>` are symlinked into the workspace and indexed as they are on disk, uncommitted changes included. A checkout is named by its `origin` remote, so a repo cloned into a different directory name still matches its PRs.
-- **Org** (`-org`, `PR_TRIAGE_ORG`): a GitHub or GitHub Enterprise org or user, as `acme`, `ghe.example.com/platform` or its URL. Every repo you can see, except archived repos and forks, is cloned (blobless) under the cache's `workspace/code`. A repo in the local directory is linked instead of cloned.
+- **Local code directory** (`-code-root DIR`, `PR_MANAGER_CODE_ROOT`): the git checkouts in `DIR/<repo>` or `DIR/<org>/<repo>` are symlinked into the workspace and indexed as they are on disk, uncommitted changes included. A checkout is named by its `origin` remote, so a repo cloned into a different directory name still matches its PRs.
+- **Org** (`-org`, `PR_MANAGER_ORG`): a GitHub or GitHub Enterprise org or user, as `acme`, `ghe.example.com/platform` or its URL. Every repo you can see, except archived repos and forks, is cloned (blobless) under the cache's `workspace/code`. A repo in the local directory is linked instead of cloned.
 
 ```sh
-pr-triage index -org acme                       # clone and index every repo of acme
-pr-triage index -code-root ~/code               # index the checkouts under ~/code
-pr-triage index -org acme -code-root ~/code     # both: local checkouts, clones for the rest
+pr-manager index -org acme                       # clone and index every repo of acme
+pr-manager index -code-root ~/code               # index the checkouts under ~/code
+pr-manager index -org acme -code-root ~/code     # both: local checkouts, clones for the rest
 ```
 
 `index` pulls the clones it already has, and only re-extracts repos that changed. In the UI, **Index now** does the same and shows how many repos were linked, cloned, updated or failed. A PR from a repo that isn't in the map is added when it is triaged: linked from the local directory if it's there, else cloned. Cross-repo impact (which repos depend on the changed code) only counts repos that are in the map, so index the whole org.
@@ -147,12 +147,12 @@ A rebuilt map changes the result cache key, but already-triaged PRs are not re-r
 ```sh
 make ui                     # chooses a free port on 127.0.0.1 and opens the browser
 make triage-prs REPO=acme/api AUTHOR=someone LIMIT=10   # triage an author's PRs into the UI cache
-./pr-triage -pr https://github.com/acme/api/pull/566   # one PR, in the terminal
+./pr-manager -pr https://github.com/acme/api/pull/566   # one PR, in the terminal
 ```
 
 Paste a PR link (`.../pull/N`, `.../pull/N/files` or `owner/repo#N`) or a local Git checkout path into the UI to triage it. Local triage compares the checkout with the merge base of `origin/HEAD` (or `origin/main` / `origin/master`) and shows how many commits it is ahead and behind. It includes committed, staged, unstaged and untracked changes in the same hunk review. It uses a temporary Git index, so the checkout's index is untouched. A local result supports review notes, code context, walkthrough, code map and fixes. Fixes require committed changes and use a separate worktree.
 
-The local result has a **Create PR** button. Commit any working tree changes and triage again before clicking it. The button pushes the current branch to `origin` and runs `gh pr create --fill`. If the commits are on the default branch, it creates and switches to a `pr-triage/<commit>` branch first. Pending review notes are copied to the new PR. The button checks that the branch and diff still match the triaged result.
+The local result has a **Create PR** button. Commit any working tree changes and triage again before clicking it. The button pushes the current branch to `origin` and runs `gh pr create --fill`. If the commits are on the default branch, it creates and switches to a `pr-manager/<commit>` branch first. Pending review notes are copied to the new PR. The button checks that the branch and diff still match the triaged result.
 
 **GitHub Enterprise.** Links on any host work, so GitHub Enterprise Server (`https://ghe.example.com/org/repo/pull/7`) and GitHub Enterprise Cloud with data residency (`*.ghe.com`) PRs triage the same way, as long as `gh` is logged in to that host (`gh auth login --hostname ghe.example.com`). `owner/repo#N` uses `GH_HOST` when it is set, else github.com; `host/owner/repo#N` names the host. `prs -repo` takes `host/owner/repo`. Clones, cached results and drafts for Enterprise hosts are kept under the host name, so the same owner/repo on two hosts don't collide; github.com keeps the names it had. Every unit shows its bucket, impact, likelihood, review attention, reason, confidence, summary, score and any escalations, above its hunks. The unit's details show how the score picked its bucket. **details** lists the issues the review found (with a **→ draft comment** button when the line can take a GitHub comment) the code-map entry (matched symbol/file, CodeRank, rollback tags, dependent repos and top callers) and the likelihood factors with the measurements behind them. The PR header shows the highest impact, likelihood and attention.
 
@@ -210,7 +210,7 @@ Classify runs `-j` calls at a time (default 8), summarize/review runs `-review-j
 ## Eval
 
 ```sh
-./pr-triage eval -fixtures testdata/eval [-classifier ...] [-judge]
+./pr-manager eval -fixtures testdata/eval [-classifier ...] [-judge]
 ```
 
 Each `testdata/eval/NAME.json` is either a past PR in a local clone (`repo`, `base`, `head`) or a saved diff plus the head versions of the changed files (`diff`, `head_dir`, and optionally `base_dir` with the merge-base versions). `labels` maps unit IDs (`file:Symbol`) or file paths to buckets. The key metric is **MISSES human→none**. Over-escalation is tolerable. The eval also re-places every unit under each review budget and prints the bucket counts, the human-labeled units outside human (`under`), and the units with a `must_find` issue outside human (`defects`). Use those to tune the budget steps.

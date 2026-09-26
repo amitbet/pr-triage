@@ -26,7 +26,7 @@ func inheritShellPath() {
 	os.Setenv("PATH", mergePath(os.Getenv("PATH"), loginShellPath(), strings.Join(fallback, string(os.PathListSeparator))))
 }
 
-const pathMarker = "__PR_TRIAGE_PATH__"
+const pathMarker = "__PR_MANAGER_PATH__"
 
 // loginShellPath returns the PATH an interactive login shell sets up, or ""
 // if the shell fails or takes too long.

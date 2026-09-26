@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check a packaged executable outside its checkout, without opening a browser.
 
-Usage: python3 scripts/smoke-release.py /absolute/path/to/pr-triage
+Usage: python3 scripts/smoke-release.py /absolute/path/to/pr-manager
 Requires Python 3 and git. Run on macOS or Linux.
 """
 import os
@@ -15,7 +15,7 @@ import time
 import urllib.request
 
 binary = str(Path(sys.argv[1]).resolve())
-with tempfile.TemporaryDirectory(prefix="pr-triage-smoke-") as tmp:
+with tempfile.TemporaryDirectory(prefix="pr-manager-smoke-") as tmp:
     root = Path(tmp)
     helpers = root / "bin"
     helpers.mkdir()

@@ -1,6 +1,6 @@
 // Package cx measures code complexity: cyclomatic complexity and the
 // deepest control-flow nesting, per function. The code-map indexer and
-// pr-triage share it, so a unit's "before" and "after" use the same rules as
+// pr-manager share it, so a unit's "before" and "after" use the same rules as
 // the map.
 //
 // Go is measured on the go/ast syntax tree. Java, C#, Python, Rust and the
@@ -18,7 +18,7 @@ import (
 	"go/parser"
 	"go/token"
 
-	"github.com/amitbet/pr-triage/codemap/decls"
+	"github.com/amitbet/pr-manager/codemap/decls"
 )
 
 // Stat is the complexity of one declaration.
@@ -84,7 +84,7 @@ func (v goVisitor) Visit(n ast.Node) ast.Visitor {
 }
 
 // Decl is a named declaration with its line range and complexity. Names
-// use the pr-triage unit format: Func, (*T).M, type T, var X, const X.
+// use the pr-manager unit format: Func, (*T).M, type T, var X, const X.
 type Decl struct {
 	Name       string
 	Start, End int

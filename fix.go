@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amitbet/pr-triage/llm"
-	"github.com/amitbet/pr-triage/triage"
+	"github.com/amitbet/pr-manager/llm"
+	"github.com/amitbet/pr-manager/triage"
 )
 
 type fixRequest struct {
@@ -337,7 +337,7 @@ func availableFixBranch(repoDir string, pr *triage.PRInfo, jobID string) string 
 			}
 		}
 	}
-	return fmt.Sprintf("pr-triage/pr-%d-%s", pr.Number, jobID)
+	return fmt.Sprintf("pr-manager/pr-%d-%s", pr.Number, jobID)
 }
 
 func makeFixPatch(ctx context.Context, o options, dir string, r *PRResult, issues []targetedIssue) (string, error) {

@@ -13,7 +13,7 @@ import (
 
 	"golang.org/x/tools/go/packages"
 
-	"github.com/amitbet/pr-triage/codemap/cx"
+	"github.com/amitbet/pr-manager/codemap/cx"
 )
 
 // goExtractor loads one Go module with full type information and records a
@@ -59,7 +59,7 @@ func (x *goExtractor) loadModule(modDir string) error {
 	for _, p := range pkgs {
 		for _, e := range p.Errors {
 			if strings.Contains(e.Msg, "requires newer Go version") {
-				return fmt.Errorf("%s: %s; upgrade pr-triage for full type information", p.PkgPath, e.Msg)
+				return fmt.Errorf("%s: %s; upgrade pr-manager for full type information", p.PkgPath, e.Msg)
 			}
 		}
 	}

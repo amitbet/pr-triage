@@ -14,19 +14,19 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/amitbet/pr-triage/codemap"
-	"github.com/amitbet/pr-triage/triage"
+	"github.com/amitbet/pr-manager/codemap"
+	"github.com/amitbet/pr-manager/triage"
 )
 
 // codeMapBuildMu serializes code-map builds: a build re-ranks the whole
 // workspace and writes the map, so two at once would clobber it.
 var codeMapBuildMu sync.Mutex
 
-// The indexer reads repos from a workspace, <ws>/code/<repo>: PR_TRIAGE_WORKSPACE
+// The indexer reads repos from a workspace, <ws>/code/<repo>: PR_MANAGER_WORKSPACE
 // if set, else <cache>/workspace. Repos get there three ways:
-//   - a local code directory (-code-root, PR_TRIAGE_CODE_ROOT): its git
+//   - a local code directory (-code-root, PR_MANAGER_CODE_ROOT): its git
 //     checkouts are symlinked in, so the map is built from the code on disk;
-//   - an org (-org, PR_TRIAGE_ORG): every non-archived, non-fork repo of a
+//   - an org (-org, PR_MANAGER_ORG): every non-archived, non-fork repo of a
 //     GitHub or GitHub Enterprise org or user is cloned (blobless);
 //   - on demand: a PR's repo that isn't in the map yet is linked from the
 //     code directory, or cloned.
@@ -35,7 +35,7 @@ var codeMapBuildMu sync.Mutex
 // repos in the workspace, so indexing the whole org matters.
 
 func workspaceDir(o options) (string, error) {
-	ws := os.Getenv("PR_TRIAGE_WORKSPACE")
+	ws := os.Getenv("PR_MANAGER_WORKSPACE")
 	if ws == "" {
 		ws = filepath.Join(o.cache, "workspace")
 	}
@@ -97,7 +97,7 @@ func indexSources(ctx context.Context, o options, progress func(stage string, do
 		return nil, errors.New("the code map is off (-codemap off)")
 	}
 	if o.codeRoot == "" && o.org == "" {
-		return nil, errors.New("nothing to index: set a code directory (-code-root, PR_TRIAGE_CODE_ROOT) or an org (-org, PR_TRIAGE_ORG)")
+		return nil, errors.New("nothing to index: set a code directory (-code-root, PR_MANAGER_CODE_ROOT) or an org (-org, PR_MANAGER_ORG)")
 	}
 	codeMapBuildMu.Lock()
 	defer codeMapBuildMu.Unlock()

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/amitbet/pr-triage/codemap/decls"
+	"github.com/amitbet/pr-manager/codemap/decls"
 )
 
 // Map is a loaded codemap directory. Repo shards load lazily.
@@ -97,7 +97,7 @@ func (m *Map) shard(repo string) *shard {
 }
 
 // Query identifies code to assess. Path is repo-relative. Sym uses the
-// pr-triage unit format: Func, (*T).M, type T, var X, const X. Lines are
+// pr-manager unit format: Func, (*T).M, type T, var X, const X. Lines are
 // on the indexed (base) side; 0 means unknown.
 type Query struct {
 	Repo      string `json:"repo"`

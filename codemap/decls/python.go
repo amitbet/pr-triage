@@ -3,7 +3,7 @@ package decls
 import (
 	"strings"
 
-	ts "github.com/amitbet/pr-triage/internal/sitter"
+	ts "github.com/amitbet/pr-manager/internal/sitter"
 )
 
 // The Python parser reads module-level functions, classes, their methods

@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/amitbet/pr-triage/codemap/decls"
+	"github.com/amitbet/pr-manager/codemap/decls"
 )
 
 // The Rust extractor works from the tree-sitter parse in codemap/decls,

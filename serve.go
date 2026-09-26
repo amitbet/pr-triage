@@ -23,9 +23,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/amitbet/pr-triage/codemap"
-	"github.com/amitbet/pr-triage/llm"
-	"github.com/amitbet/pr-triage/triage"
+	"github.com/amitbet/pr-manager/codemap"
+	"github.com/amitbet/pr-manager/llm"
+	"github.com/amitbet/pr-manager/triage"
 )
 
 //go:embed ui
@@ -574,7 +574,7 @@ func runServe(ctx context.Context, o options) error {
 	}
 	ln, err := net.Listen("tcp", o.addr)
 	if err != nil {
-		return fmt.Errorf("%w (another pr-triage serve running? `make stop` or `lsof -iTCP:%s`)", err, portOf(o.addr))
+		return fmt.Errorf("%w (another pr-manager serve running? `make stop` or `lsof -iTCP:%s`)", err, portOf(o.addr))
 	}
 	addr := ln.Addr().(*net.TCPAddr)
 	host := addr.IP.String()
@@ -585,7 +585,7 @@ func runServe(ctx context.Context, o options) error {
 		}
 	}
 	url := "http://" + net.JoinHostPort(host, fmt.Sprint(addr.Port))
-	log.Printf("pr-triage UI on %s (Ctrl+C to stop)", url)
+	log.Printf("pr-manager UI on %s (Ctrl+C to stop)", url)
 	go func() {
 		if err := openBrowser(ctx, url); err != nil {
 			log.Printf("could not open browser: %v; open %s manually", err, url)

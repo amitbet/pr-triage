@@ -1,4 +1,4 @@
-module github.com/amitbet/pr-triage
+module github.com/amitbet/pr-manager
 
 go 1.26.0
 

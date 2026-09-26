@@ -3,7 +3,7 @@
 package decls
 
 import (
-	ts "github.com/amitbet/pr-triage/internal/sitter"
+	ts "github.com/amitbet/pr-manager/internal/sitter"
 	"github.com/odvcencio/gotreesitter/grammars/bash"
 	"github.com/odvcencio/gotreesitter/grammars/c"
 	"github.com/odvcencio/gotreesitter/grammars/c_sharp"

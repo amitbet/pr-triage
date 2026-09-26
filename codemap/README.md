@@ -21,7 +21,7 @@ scripts/codemap.sh top -level file -repo api -n 20             # -by impact|like
 
 The development map goes to `.cache/map`. `scripts/codemap.sh` compiles `cmd/codemap` with the newest Go toolchain
 any indexed repo asks for; the type checker refuses packages newer than itself.
-The workspace comes from `WORKSPACE` or `PR_TRIAGE_WORKSPACE`; scoring rules
+The workspace comes from `WORKSPACE` or `PR_MANAGER_WORKSPACE`; scoring rules
 default to the embedded [`indexer/default.yaml`](indexer/default.yaml).
 
 ## What gets measured
@@ -244,7 +244,7 @@ over the `likelihood:` point rules in the scoring config. Map records score thei
 history (fixes, reverts, churn, authors) and complexity. A symbol uses its
 file's history and its own complexity. A directory's likelihood is its
 75th-percentile file, like rollback. Generated code scores 0: it is
-regenerated, not edited, so its defects live in the source. pr-triage adds the
+regenerated, not edited, so its defects live in the source. pr-manager adds the
 change rules (complexity added, author experience, missing tests and
 partners, PR spread, fix PRs) for each PR unit.
 
@@ -271,7 +271,7 @@ settings/api/v1/user/api.yaml:GetProfiles              API operation
 grep '"id":"settings/api/v1/user/server.go' .cache/map/settings.jsonl
 ```
 
-Symbol names use the `pr-triage` unit format: `Func`, `(*T).M`, `type T`,
+Symbol names use the `pr-manager` unit format: `Func`, `(*T).M`, `type T`,
 `var X`, `const X`. TS symbols use the declared name and
 `Class.member` (a constructor is `Class.constructor`; overloads and a
 getter/setter pair share one), Java symbols
@@ -299,7 +299,7 @@ Records also carry `likelihood`, `hist`, `cx` and `cochange`.
 1. Symbol by name when one is given (receiver `*` is ignored).
 2. Otherwise symbols whose stored line range overlaps the hunk; the highest
    impact first. This is only right while the file matches the indexed
-   commit. pr-triage never uses it when it has the PR's base revision: it
+   commit. pr-manager never uses it when it has the PR's base revision: it
    parses the base file with `codemap/decls` (the indexer's own TS, Java,
    Python, C#, Rust, generic-parser and OpenAPI parsers, plus `go/parser`)
    and queries by name. Declarations nest; a line belongs to the innermost
@@ -317,8 +317,8 @@ Diff mode matches hunks on the old (base) side, which is what the map
 indexed. Paths in the diff are repo-relative (`-repo` names the repo) or
 workspace-relative (`code/<repo>/...`).
 
-Go code uses this package (`github.com/amitbet/pr-triage/codemap`,
-standard library only); `triage/impact.go` is the pr-triage integration:
+Go code uses this package (`github.com/amitbet/pr-manager/codemap`,
+standard library only); `triage/impact.go` is the pr-manager integration:
 
 ```go
 m, _ := codemap.Open(".cache/map")
@@ -395,6 +395,6 @@ re-extraction with nothing changed takes 0.4s against 0.9s cold.
   (`GOT_C_RECOVERY=c,cpp`, unless set), which parses most of them whole.
 - Go files with platform-only cgo dependencies (e.g. linux-only) do not
   type-check on other hosts; those files get partial reference information.
-- Stored line ranges drift as code changes. Query by name (pr-triage resolves
+- Stored line ranges drift as code changes. Query by name (pr-manager resolves
   names on the PR's base revision). Rebuild the map when main moves so new
   symbols get records.

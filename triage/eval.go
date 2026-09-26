@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/amitbet/pr-triage/llm"
+	"github.com/amitbet/pr-manager/llm"
 )
 
 // An eval case is NAME.json in the fixtures dir. Either point it at a

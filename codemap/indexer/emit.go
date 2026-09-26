@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amitbet/pr-triage/codemap"
+	"github.com/amitbet/pr-manager/codemap"
 )
 
 type scored struct {

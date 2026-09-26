@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/amitbet/pr-triage/triage"
+	"github.com/amitbet/pr-manager/triage"
 )
 
 var scpRemote = regexp.MustCompile(`^(?:[^@]+@)?([^:]+):([^/]+)/(.+?)(?:\.git)?$`)
@@ -138,7 +138,7 @@ func inspectLocal(ctx context.Context, path string) (*localSnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	tmp, err := os.CreateTemp("", "pr-triage-index-*")
+	tmp, err := os.CreateTemp("", "pr-manager-index-*")
 	if err != nil {
 		return nil, err
 	}
@@ -331,7 +331,7 @@ func publishLocal(r *PRResult) (string, error) {
 		return "", errors.New("origin must be a GitHub repository to create a PR")
 	}
 	if p.HeadRef == p.BaseRef {
-		name := "pr-triage/" + p.HeadOid[:10]
+		name := "pr-manager/" + p.HeadOid[:10]
 		if tip, err := triage.Git(p.LocalPath, "rev-parse", "--verify", "refs/heads/"+name); err == nil {
 			if strings.TrimSpace(tip) != p.HeadOid {
 				return "", errors.New("generated PR branch already exists at a different commit")

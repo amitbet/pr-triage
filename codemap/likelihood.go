@@ -19,7 +19,7 @@ func (p Points) Of(v float64) float64 {
 }
 
 // LikelihoodWeights are the point rules behind every likelihood score. The
-// place rules (history and complexity) score map records; pr-triage adds
+// place rules (history and complexity) score map records; pr-manager adds
 // the change rules for a PR unit. Each rule is capped, and the total is
 // capped at 100, so no single signal decides on its own.
 type LikelihoodWeights struct {

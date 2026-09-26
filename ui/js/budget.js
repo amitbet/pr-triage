@@ -3,7 +3,7 @@
 import { BUCKETS } from "./util.js";
 
 const RANK = { none: 0, skim: 1, human: 2 };
-const KEY = "pr-triage.review_budget";
+const KEY = "pr-manager.review_budget";
 
 // budgets are the result's own steps (its repo policy), else the server's.
 export const budgets = (r, cfg) => (r?.budgets?.length ? r.budgets : cfg?.budgets) || [];

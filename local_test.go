@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/amitbet/pr-triage/triage"
+	"github.com/amitbet/pr-manager/triage"
 )
 
 func gitTest(t *testing.T, dir string, args ...string) string {

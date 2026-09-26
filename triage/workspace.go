@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/amitbet/pr-triage/llm"
+	"github.com/amitbet/pr-manager/llm"
 )
 
 // reviewWorkspace gives the reviewer the repository at the PR head: the
@@ -23,7 +23,7 @@ func reviewWorkspace(src *Source) (*llm.Workspace, func(), error) {
 	case src.HeadDir != "":
 		ws = &llm.Workspace{Dir: src.HeadDir}
 	case src.Dir != "" && src.Head != "":
-		dir, err := os.MkdirTemp("", "pr-triage-head-")
+		dir, err := os.MkdirTemp("", "pr-manager-head-")
 		if err != nil {
 			return nil, noop, err
 		}

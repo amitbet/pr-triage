@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/amitbet/pr-triage/codemap/cx"
+	"github.com/amitbet/pr-manager/codemap/cx"
 )
 
 // parseModule keeps declarations and complexity when the Go toolchain is absent

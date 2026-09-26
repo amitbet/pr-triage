@@ -5,12 +5,12 @@
 # The indexer type-checks every Go repo in the workspace, so it must be
 # compiled with a Go toolchain at least as new as the newest `go` directive in
 # those repos. This wrapper picks that version and lets GOTOOLCHAIN fetch it.
-# The workspace is $PR_TRIAGE_WORKSPACE (a directory containing code/<repo>);
+# The workspace is $PR_MANAGER_WORKSPACE (a directory containing code/<repo>);
 # $CODEMAP_CONFIG optionally overrides the embedded scoring rules.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WS="${PR_TRIAGE_WORKSPACE:-}"
+WS="${PR_MANAGER_WORKSPACE:-}"
 BIN="$ROOT_DIR/.cache/codemap/bin/codemap"
 MAP="$ROOT_DIR/.cache/map"
 PATHS=(-output "$MAP" -cache "$ROOT_DIR/.cache/graphs")

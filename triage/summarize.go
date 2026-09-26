@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/amitbet/pr-triage/llm"
+	"github.com/amitbet/pr-manager/llm"
 )
 
 const summarizeSystem = `You write short review summaries for pull-request changes that a triage step judged low-risk.

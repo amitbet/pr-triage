@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>pr-triage</title>
+<title>pr-manager</title>
 <link rel="stylesheet" href="css/app.css">
 <link rel="stylesheet" href="css/review.css">
 <link rel="stylesheet" href="css/diff.css">
@@ -13,7 +13,7 @@
 </head>
 <body>
 <header>
-  <h1>pr-triage</h1>
+  <h1>pr-manager</h1>
   <input id="url" placeholder="PR URL or local repository path" spellcheck="false">
   <button id="go" class="primary">Triage</button>
   <label class="rerun"><input type="checkbox" id="force"> re-run</label>
@@ -55,7 +55,7 @@
         <input id="org" spellcheck="false" placeholder="acme, or https://ghe.example.com/platform">
       </div>
       <div class="codemap-actions"><button type="button" id="index-btn">Index now</button> <span id="index-status" class="hint"></span></div>
-      <p class="hint">Impact scores come from a map of your repos. Index now links the checkouts in the local directory (indexed as they are on disk, including uncommitted changes) and clones the org's other repos, then rebuilds the map; only repos that changed are re-read. A PR from a repo that isn't in the map is added when it's triaged: linked from the local directory, else cloned. Cross-repo impact only counts repos in the map, so index the whole org. The server defaults are <code>PR_TRIAGE_CODE_ROOT</code> and <code>PR_TRIAGE_ORG</code>.</p>
+      <p class="hint">Impact scores come from a map of your repos. Index now links the checkouts in the local directory (indexed as they are on disk, including uncommitted changes) and clones the org's other repos, then rebuilds the map; only repos that changed are re-read. A PR from a repo that isn't in the map is added when it's triaged: linked from the local directory, else cloned. Cross-repo impact only counts repos in the map, so index the whole org. The server defaults are <code>PR_MANAGER_CODE_ROOT</code> and <code>PR_MANAGER_ORG</code>.</p>
     </section>
     <section>
       <h4>Summary language</h4>

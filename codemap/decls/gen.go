@@ -4,7 +4,7 @@ import (
 	"path"
 	"strings"
 
-	ts "github.com/amitbet/pr-triage/internal/sitter"
+	ts "github.com/amitbet/pr-manager/internal/sitter"
 )
 
 // Shell, PowerShell, C, C++, PHP, Scala, Kotlin, Ruby, Swift and Dart share

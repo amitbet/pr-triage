@@ -8,8 +8,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/amitbet/pr-triage/codemap"
-	"github.com/amitbet/pr-triage/codemap/githist"
+	"github.com/amitbet/pr-manager/codemap"
+	"github.com/amitbet/pr-manager/codemap/githist"
 )
 
 type Config struct {

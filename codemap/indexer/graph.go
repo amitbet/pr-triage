@@ -3,7 +3,7 @@ package indexer
 import (
 	"time"
 
-	"github.com/amitbet/pr-triage/codemap/githist"
+	"github.com/amitbet/pr-manager/codemap/githist"
 )
 
 // Raw per-repo graph produced by the extractors and cached under

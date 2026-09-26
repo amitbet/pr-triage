@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/amitbet/pr-triage/llm"
+	"github.com/amitbet/pr-manager/llm"
 )
 
 // errorCacheCase loads the inventory-error-cache fixture: retry logic moved

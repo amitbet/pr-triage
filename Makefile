@@ -1,4 +1,4 @@
-BIN      := ./pr-triage
+BIN      := ./pr-manager
 ADDR     ?= 127.0.0.1:0
 REPO     ?=
 AUTHOR   ?=
@@ -12,7 +12,7 @@ DEV_FLAGS = -cache .cache -codemap .cache/map $(if $(CODEMAP_CONFIG),-codemap-co
 # Code map: optional scoring config, workspace (a directory with code/<repo>),
 # repos to force, lookup target.
 CODEMAP_CONFIG ?=
-WORKSPACE ?= $(PR_TRIAGE_WORKSPACE)
+WORKSPACE ?= $(PR_MANAGER_WORKSPACE)
 MAP_REPO ?=
 TARGET ?=
 
@@ -34,10 +34,10 @@ test:
 
 # Start the UI server and open it in the browser.
 ui: build
-	@$(KEYS) PR_TRIAGE_WORKSPACE="$(WORKSPACE)" $(BIN) serve $(DEV_FLAGS) -addr $(ADDR) $(SERVE_FLAGS)
+	@$(KEYS) PR_MANAGER_WORKSPACE="$(WORKSPACE)" $(BIN) serve $(DEV_FLAGS) -addr $(ADDR) $(SERVE_FLAGS)
 
 serve: build
-	@$(KEYS) PR_TRIAGE_WORKSPACE="$(WORKSPACE)" $(BIN) serve $(DEV_FLAGS) -addr $(ADDR) $(SERVE_FLAGS)
+	@$(KEYS) PR_MANAGER_WORKSPACE="$(WORKSPACE)" $(BIN) serve $(DEV_FLAGS) -addr $(ADDR) $(SERVE_FLAGS)
 
 # Stop a running UI server.
 stop:
@@ -46,7 +46,7 @@ stop:
 # Triage an author's PRs into the UI cache (make triage-prs REPO=o/r AUTHOR=login).
 triage-prs: build
 	@test -n "$(REPO)" -a -n "$(AUTHOR)" || { echo "usage: make triage-prs REPO=owner/repo AUTHOR=login"; exit 1; }
-	@$(KEYS) PR_TRIAGE_WORKSPACE="$(WORKSPACE)" $(BIN) prs $(DEV_FLAGS) -repo $(REPO) -author $(AUTHOR) -limit $(LIMIT)
+	@$(KEYS) PR_MANAGER_WORKSPACE="$(WORKSPACE)" $(BIN) prs $(DEV_FLAGS) -repo $(REPO) -author $(AUTHOR) -limit $(LIMIT)
 
 clean-cache:
 	rm -rf .cache/results
@@ -54,7 +54,7 @@ clean-cache:
 # Rebuild the code map in .cache/map (re-extracts only repos that changed).
 # make codemap WORKSPACE=~/ws MAP_REPO=api forces one repo; FORCE=1 forces all.
 codemap:
-	@PR_TRIAGE_WORKSPACE="$(WORKSPACE)" CODEMAP_CONFIG="$(CODEMAP_CONFIG)" scripts/codemap.sh build $(if $(MAP_REPO),-repo $(MAP_REPO)) $(if $(FORCE),-force)
+	@PR_MANAGER_WORKSPACE="$(WORKSPACE)" CODEMAP_CONFIG="$(CODEMAP_CONFIG)" scripts/codemap.sh build $(if $(MAP_REPO),-repo $(MAP_REPO)) $(if $(FORCE),-force)
 
 # Re-score from cached graphs after editing CODEMAP_CONFIG.
 codemap-rank:

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/amitbet/pr-triage/llm"
+	"github.com/amitbet/pr-manager/llm"
 	"golang.org/x/sync/errgroup"
 )
 

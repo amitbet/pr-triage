@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode"
 
-	ts "github.com/amitbet/pr-triage/internal/sitter"
+	ts "github.com/amitbet/pr-manager/internal/sitter"
 )
 
 // The Rust parser reads items off the tree-sitter tree: functions, structs,

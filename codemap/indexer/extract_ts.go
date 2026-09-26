@@ -10,8 +10,8 @@ import (
 
 	"strings"
 
-	"github.com/amitbet/pr-triage/codemap/cx"
-	"github.com/amitbet/pr-triage/codemap/decls"
+	"github.com/amitbet/pr-manager/codemap/cx"
+	"github.com/amitbet/pr-manager/codemap/decls"
 )
 
 // The TS extractor is a lexer, not a type checker. It finds top-level

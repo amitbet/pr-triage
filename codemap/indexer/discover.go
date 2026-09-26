@@ -20,8 +20,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/amitbet/pr-triage/codemap/githist"
-	"github.com/amitbet/pr-triage/internal/sitter"
+	"github.com/amitbet/pr-manager/codemap/githist"
+	"github.com/amitbet/pr-manager/internal/sitter"
 )
 
 type RepoInfo struct {

@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/amitbet/pr-triage/codemap"
-	"github.com/amitbet/pr-triage/codemap/decls"
+	"github.com/amitbet/pr-manager/codemap"
+	"github.com/amitbet/pr-manager/codemap/decls"
 )
 
 // Impact is the code-map assessment of the code a unit touches: how much a

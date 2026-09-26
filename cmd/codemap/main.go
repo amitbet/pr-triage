@@ -3,7 +3,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/amitbet/pr-triage/codemap/indexer"
+	"github.com/amitbet/pr-manager/codemap/indexer"
 	"os"
 )
 

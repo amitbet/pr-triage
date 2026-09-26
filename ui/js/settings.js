@@ -1,5 +1,5 @@
 // Settings dialog: provider and model pickers, code map sources, summary
-// language, review budget and review tools. Choices are kept in localStorage under pr-triage.<key>.
+// language, review budget and review tools. Choices are kept in localStorage under pr-manager.<key>.
 import { $, esc, api, LABEL } from "./util.js";
 import { S } from "./state.js";
 import * as budget from "./budget.js";
@@ -13,18 +13,18 @@ const ROLES = [
   { role: "summarizer", model: "summary_model", def: "summary_model", label: "summarizer" },
 ];
 let P = null; // GET /api/providers
-const saved = (k) => localStorage.getItem(`pr-triage.${k}`) || "";
+const saved = (k) => localStorage.getItem(`pr-manager.${k}`) || "";
 // Old provider names, from before the API providers were named *-api.
 const RENAMED = { openai: "openai-api", anthropic: "claude-api", claude: "claude-api" };
 for (const r of ["classifier", "summarizer"]) {
   const v = saved(r);
-  if (RENAMED[v]) localStorage.setItem(`pr-triage.${r}`, RENAMED[v]);
+  if (RENAMED[v]) localStorage.setItem(`pr-manager.${r}`, RENAMED[v]);
 }
 for (const [k, v] of Object.entries({ ...localStorage })) {
-  const m = k.match(/^pr-triage\.((?:classify|summary)_model)\.(openai|anthropic|claude)$/);
-  if (m) { localStorage.setItem(`pr-triage.${m[1]}.${RENAMED[m[2]]}`, v); localStorage.removeItem(k); }
+  const m = k.match(/^pr-manager\.((?:classify|summary)_model)\.(openai|anthropic|claude)$/);
+  if (m) { localStorage.setItem(`pr-manager.${m[1]}.${RENAMED[m[2]]}`, v); localStorage.removeItem(k); }
 }
-const save = (k, v) => localStorage.setItem(`pr-triage.${k}`, v);
+const save = (k, v) => localStorage.setItem(`pr-manager.${k}`, v);
 let onBudget = () => {};
 
 function fillProviders(r) {
@@ -148,7 +148,7 @@ function showLine() {
 }
 
 // Code map sources. Empty fields fall back to the server's
-// PR_TRIAGE_CODE_ROOT / PR_TRIAGE_ORG, shown as placeholders.
+// PR_MANAGER_CODE_ROOT / PR_MANAGER_ORG, shown as placeholders.
 function codeSources() {
   const body = {};
   for (const k of ["code_root", "org"]) {

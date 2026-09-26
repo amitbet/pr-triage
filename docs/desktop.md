@@ -9,9 +9,9 @@ On Windows, run `bash scripts/build-desktop.sh` from an MSYS2 UCRT64 shell if
 
 | Build host | Output | Build requirements |
 | --- | --- | --- |
-| macOS arm64 | `dist/desktop/PR Triage.app` | Xcode command line tools |
-| Linux amd64 | `dist/desktop/pr-triage-linux-amd64` | GCC, GTK 3, WebKit2GTK 4.1 development packages, pkg-config |
-| Windows amd64 | `dist/desktop/pr-triage-windows-amd64.exe` | MinGW GCC; WebView2 runtime to run |
+| macOS arm64 | `dist/desktop/PR Manager.app` | Xcode command line tools |
+| Linux amd64 | `dist/desktop/pr-manager-linux-amd64` | GCC, GTK 3, WebKit2GTK 4.1 development packages, pkg-config |
+| Windows amd64 | `dist/desktop/pr-manager-windows-amd64.exe` | MinGW GCC; WebView2 runtime to run |
 
 The build is native because cgo compiles each tree-sitter grammar for the host
 OS and architecture. `.github/workflows/ci.yml` runs tests and builds on
@@ -19,9 +19,9 @@ all three hosts, then uploads the results as workflow artifacts. A push to
 `main` also tags the next patch version and adds those desktop packages to the
 GitHub release alongside the CLI archives. Pushing a version tag directly still
 publishes through `.github/workflows/release.yml`. The release assets are
-`PR-Triage-macos-arm64.zip`, `pr-triage-linux-amd64.tar.gz`, and
-`pr-triage-windows-amd64.exe`. The macOS app is ad-hoc signed but not
-notarized. Each stable release also updates `Casks/pr-triage-desktop.rb`, which
+`PR-Manager-macos-arm64.zip`, `pr-manager-linux-amd64.tar.gz`, and
+`pr-manager-windows-amd64.exe`. The macOS app is ad-hoc signed but not
+notarized. Each stable release also updates `Casks/pr-manager-desktop.rb`, which
 installs the app and removes quarantine (see [install](install.md)).
 
 The CLI and browser server remain the pure Go build. `go run . serve`,

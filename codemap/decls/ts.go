@@ -1,5 +1,5 @@
 // Package decls finds declarations in TypeScript, Java, Python, C# and Rust
-// files and operations in OpenAPI specs. The code-map indexer and pr-triage
+// files and operations in OpenAPI specs. The code-map indexer and pr-manager
 // share it, so a hunk is resolved to the same names the map was built with.
 package decls
 

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/amitbet/pr-triage/llm"
+	"github.com/amitbet/pr-manager/llm"
 )
 
 const criticSystem = `You are an independent code review critic. Assess one reported defect, not the review as a whole. The reviewer's issue is a claim, not evidence.

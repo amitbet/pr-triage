@@ -57,8 +57,8 @@ jobs:
         run: go vet ./... && go test ./...
       - name: Smoke-test serve
         run: |
-          go build -o "$RUNNER_TEMP/pr-triage" .
-          python3 scripts/smoke-release.py "$RUNNER_TEMP/pr-triage"
+          go build -o "$RUNNER_TEMP/pr-manager" .
+          python3 scripts/smoke-release.py "$RUNNER_TEMP/pr-manager"
       # On main, build the real release so the release job only publishes it.
       # The tag stays local until the release job pushes it.
       - name: Tag the release locally
@@ -83,7 +83,7 @@ jobs:
             dist/*.zip
             dist/checksums.txt
             dist/CHANGELOG.md
-            dist/homebrew/Casks/pr-triage.rb
+            dist/homebrew/Casks/pr-manager.rb
           if-no-files-found: error
   desktop:
     name: Desktop build (${{ matrix.artifact }})
@@ -96,15 +96,15 @@ jobs:
           - os: macos-15
             artifact: macos-arm64
             test_tags: desktop
-            output: dist/desktop/PR-Triage-macos-arm64.zip
+            output: dist/desktop/PR-Manager-macos-arm64.zip
           - os: ubuntu-24.04
             artifact: linux-amd64
             test_tags: desktop,webkit2_41
-            output: dist/desktop/pr-triage-linux-amd64.tar.gz
+            output: dist/desktop/pr-manager-linux-amd64.tar.gz
           - os: windows-latest
             artifact: windows-amd64
             test_tags: desktop
-            output: dist/desktop/pr-triage-windows-amd64.exe
+            output: dist/desktop/pr-manager-windows-amd64.exe
     runs-on: ${{ matrix.os }}
     # Each build uploads its package to the release as soon as it is ready.
     permissions:
@@ -147,7 +147,7 @@ jobs:
         run: go test -tags desktop ./...
       - uses: actions/upload-artifact@v4
         with:
-          name: pr-triage-${{ matrix.artifact }}
+          name: pr-manager-${{ matrix.artifact }}
           path: ${{ matrix.output }}
           if-no-files-found: error
       # The release job creates the release after the CLI tests pass. Wait for
@@ -191,7 +191,7 @@ jobs:
       - name: Verify release packages
         run: |
           test -s "$RUNNER_TEMP/cli-release/checksums.txt"
-          test -s "$RUNNER_TEMP/cli-release/homebrew/Casks/pr-triage.rb"
+          test -s "$RUNNER_TEMP/cli-release/homebrew/Casks/pr-manager.rb"
           cd "$RUNNER_TEMP/cli-release" && sha256sum -c checksums.txt
       - name: Bump version
         env:
@@ -241,11 +241,11 @@ jobs:
           for attempt in 1 2 3; do
             git fetch origin main
             git checkout -B main origin/main
-            cp "$RUNNER_TEMP/cli-release/homebrew/Casks/pr-triage.rb" Casks/pr-triage.rb
-            git add Casks/pr-triage.rb
+            cp "$RUNNER_TEMP/cli-release/homebrew/Casks/pr-manager.rb" Casks/pr-manager.rb
+            git add Casks/pr-manager.rb
             if git diff --cached --quiet; then exit 0; fi
             git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-              commit -m "Update Homebrew cask for pr-triage $RELEASE_TAG"
+              commit -m "Update Homebrew cask for pr-manager $RELEASE_TAG"
             git push origin main && exit 0
             sleep 5
           done
@@ -261,7 +261,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: pr-triage-*
+          pattern: pr-manager-*
           path: ${{ runner.temp }}/desktop-release
           merge-multiple: true
       - name: Publish desktop checksums
@@ -270,7 +270,7 @@ jobs:
           RELEASE_TAG: ${{ needs.version.outputs.tag }}
         run: |
           cd "$RUNNER_TEMP/desktop-release"
-          sha256sum PR-Triage-macos-arm64.zip pr-triage-linux-amd64.tar.gz pr-triage-windows-amd64.exe > desktop-checksums.txt
+          sha256sum PR-Manager-macos-arm64.zip pr-manager-linux-amd64.tar.gz pr-manager-windows-amd64.exe > desktop-checksums.txt
           gh release upload "$RELEASE_TAG" desktop-checksums.txt --clobber
       # Casks/** changes do not trigger CI, so this commit does not start a
       # new release.
@@ -282,11 +282,11 @@ jobs:
           for attempt in 1 2 3; do
             git fetch origin main
             git checkout -B main origin/main
-            bash scripts/desktop-cask.sh "$RELEASE_TAG" "$RUNNER_TEMP/desktop-release/PR-Triage-macos-arm64.zip" > Casks/pr-triage-desktop.rb
-            git add Casks/pr-triage-desktop.rb
+            bash scripts/desktop-cask.sh "$RELEASE_TAG" "$RUNNER_TEMP/desktop-release/PR-Manager-macos-arm64.zip" > Casks/pr-manager-desktop.rb
+            git add Casks/pr-manager-desktop.rb
             if git diff --cached --quiet; then exit 0; fi
             git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-              commit -m "Update Homebrew cask for pr-triage-desktop $RELEASE_TAG"
+              commit -m "Update Homebrew cask for pr-manager-desktop $RELEASE_TAG"
             git push origin main && exit 0
             sleep 5
           done

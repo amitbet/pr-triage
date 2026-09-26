@@ -29,7 +29,7 @@ history:
 
 # Likelihood: how likely a change here is to go wrong. Points per signal,
 # each capped (points = min(max, max(0, value - from) * per)), total capped
-# at 100. The map scores history + complexity; pr-triage adds the change
+# at 100. The map scores history + complexity; pr-manager adds the change
 # rules for each PR unit. Signals come from just-in-time defect prediction
 # (Kamei et al.), Meta's diff risk score and Prime Video's diff-aware
 # features: past fixes and reverts, churn, author count and experience,

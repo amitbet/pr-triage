@@ -23,7 +23,7 @@ function steps() {
 }
 
 // Progress is kept per result, so a reload resumes where the reviewer left off.
-const storeKey = () => `pr-triage.walk.${S.result.key}`;
+const storeKey = () => `pr-manager.walk.${S.result.key}`;
 export function loadProgress() {
   const saved = JSON.parse(localStorage.getItem(storeKey()) || "{}");
   Object.assign(S.wz, { cur: saved.cur || null, done: new Set(saved.done || []), finished: false });
@@ -204,7 +204,7 @@ export const actions = {
   "wz-toggle": () => { toggleReviewed(); return false; },
   "wz-reset": () => { S.wz.done.clear(); S.wz.cur = null; go(0); return false; },
   "wz-all": (el) => { S.wz.all = el.checked; },
-  "wz-view": (el) => { S.wz.view = el.dataset.v; localStorage.setItem("pr-triage.wzview", S.wz.view); },
+  "wz-view": (el) => { S.wz.view = el.dataset.v; localStorage.setItem("pr-manager.wzview", S.wz.view); },
   "wz-submit": () => { openPanel(); return false; },
   "wz-line": (el) => {
     const row = document.querySelector(`.wz-code tr[data-iss="${+el.dataset.line}"]`);

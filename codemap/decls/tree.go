@@ -8,7 +8,7 @@ import (
 	"unicode/utf8"
 	"unsafe"
 
-	ts "github.com/amitbet/pr-triage/internal/sitter"
+	ts "github.com/amitbet/pr-manager/internal/sitter"
 )
 
 // The declaration parsers run a tree-sitter grammar and read declarations

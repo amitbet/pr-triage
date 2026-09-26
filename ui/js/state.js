@@ -4,7 +4,7 @@
 export const S = {
   result: null,
   cfg: null,
-  view: localStorage.getItem("pr-triage.view") || "split",
+  view: localStorage.getItem("pr-manager.view") || "split",
   hidden: new Set(),
   collapsed: new Set(),   // file paths
   diffOpen: {},           // unit id -> bool (default: open unless bucket none)
@@ -16,8 +16,8 @@ export const S = {
   drafts: [],
   composer: null,         // {path, side, line, id?, body}
   tab: "review",          // review | walk | map
-  wz: { cur: null, done: new Set(), all: false, finished: false, view: localStorage.getItem("pr-triage.wzview") || "unified" },
-  tm: { scope: "repo", zoom: [], sort: "risk", mode: localStorage.getItem("pr-triage.tmmode") || "both" }, // treemap: repo | all, zoom path, color by impact | likelihood | both
+  wz: { cur: null, done: new Set(), all: false, finished: false, view: localStorage.getItem("pr-manager.wzview") || "unified" },
+  tm: { scope: "repo", zoom: [], sort: "risk", mode: localStorage.getItem("pr-manager.tmmode") || "both" }, // treemap: repo | all, zoom path, color by impact | likelihood | both
   trees: {},              // treemap data by repo ("all" = workspace)
 };
 

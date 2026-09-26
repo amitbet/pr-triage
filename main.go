@@ -1,11 +1,11 @@
-// pr-triage sorts a branch's diff into: needs human review, skim the
+// pr-manager sorts a branch's diff into: needs human review, skim the
 // generated summary, or no review needed.
 //
-//	pr-triage [flags]                       triage base...head in -C dir
-//	pr-triage -pr URL [flags]               triage a GitHub PR
-//	pr-triage eval -fixtures DIR [flags]    score against labeled past PRs
-//	pr-triage serve [-addr host:port]       web UI (make ui)
-//	pr-triage prs -repo o/r -author login   triage an author's PRs into the UI cache
+//	pr-manager [flags]                       triage base...head in -C dir
+//	pr-manager -pr URL [flags]               triage a GitHub PR
+//	pr-manager eval -fixtures DIR [flags]    score against labeled past PRs
+//	pr-manager serve [-addr host:port]       web UI (make ui)
+//	pr-manager prs -repo o/r -author login   triage an author's PRs into the UI cache
 package main
 
 import (
@@ -20,11 +20,11 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/amitbet/pr-triage/codemap"
-	"github.com/amitbet/pr-triage/codemap/indexer"
-	"github.com/amitbet/pr-triage/internal/appdirs"
-	"github.com/amitbet/pr-triage/llm"
-	"github.com/amitbet/pr-triage/triage"
+	"github.com/amitbet/pr-manager/codemap"
+	"github.com/amitbet/pr-manager/codemap/indexer"
+	"github.com/amitbet/pr-manager/internal/appdirs"
+	"github.com/amitbet/pr-manager/llm"
+	"github.com/amitbet/pr-manager/triage"
 )
 
 type options struct {
@@ -63,7 +63,7 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "version", "--version", "-version":
-			fmt.Printf("pr-triage %s (commit %s, built %s)\n", version, commit, date)
+			fmt.Printf("pr-manager %s (commit %s, built %s)\n", version, commit, date)
 			return
 		case "codemap":
 			if err := indexer.Run(os.Args[2:]); err != nil {
@@ -75,11 +75,11 @@ func main() {
 	}
 	cacheRoot, err := appdirs.CacheDir()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "pr-triage:", err)
+		fmt.Fprintln(os.Stderr, "pr-manager:", err)
 		os.Exit(1)
 	}
 	var o options
-	fs := flag.NewFlagSet("pr-triage", flag.ExitOnError)
+	fs := flag.NewFlagSet("pr-manager", flag.ExitOnError)
 	fs.StringVar(&o.dir, "C", ".", "git repository to triage")
 	fs.StringVar(&o.base, "base", "origin/main", "base ref (diff is base...head)")
 	fs.StringVar(&o.head, "head", "HEAD", "head ref")
@@ -100,10 +100,10 @@ func main() {
 	fs.StringVar(&o.summaryLang, "summary-lang", "", "language for summaries, review notes and issue text, e.g. Hebrew or Japanese (default English)")
 	fs.StringVar(&o.reviewBudget, "review-budget", "", "how much goes to human review: "+strings.Join(triage.BudgetNames, "|")+" (default: tiers.review_budget in the policy, else "+triage.DefaultBudget+")")
 	fs.StringVar(&o.openjevURL, "openjev-url", "", "OpenJev server (default $OPENJEV_BASE_URL or http://127.0.0.1:8771)")
-	fs.StringVar(&o.codemapDir, "codemap", filepath.Join(cacheRoot, "codemap"), "code map directory for impact, file history and tier moves (off to disable; build with pr-triage codemap build)")
+	fs.StringVar(&o.codemapDir, "codemap", filepath.Join(cacheRoot, "codemap"), "code map directory for impact, file history and tier moves (off to disable; build with pr-manager codemap build)")
 	fs.StringVar(&o.codemapConfig, "codemap-config", "", "code-map scoring config (default embedded rules)")
-	fs.StringVar(&o.codeRoot, "code-root", os.Getenv("PR_TRIAGE_CODE_ROOT"), "code map: local directory of git checkouts (DIR/<repo> or DIR/<org>/<repo>) to index from disk instead of cloning (default $PR_TRIAGE_CODE_ROOT)")
-	fs.StringVar(&o.org, "org", os.Getenv("PR_TRIAGE_ORG"), "code map: GitHub or GitHub Enterprise org or user whose repos `pr-triage index` clones and indexes: name, host/name or https://host/name (default $PR_TRIAGE_ORG)")
+	fs.StringVar(&o.codeRoot, "code-root", os.Getenv("PR_MANAGER_CODE_ROOT"), "code map: local directory of git checkouts (DIR/<repo> or DIR/<org>/<repo>) to index from disk instead of cloning (default $PR_MANAGER_CODE_ROOT)")
+	fs.StringVar(&o.org, "org", os.Getenv("PR_MANAGER_ORG"), "code map: GitHub or GitHub Enterprise org or user whose repos `pr-manager index` clones and indexes: name, host/name or https://host/name (default $PR_MANAGER_ORG)")
 	fs.StringVar(&o.mapRepo, "map-repo", "", "repo name in the code map for local runs (default: basename of the -C checkout)")
 	fs.IntVar(&o.concurrency, "j", 8, "parallel classify calls")
 	fs.IntVar(&o.reviewConcurrency, "review-j", 16, "parallel summarize/review calls (0 = same as -j)")
@@ -153,7 +153,7 @@ func main() {
 		err = runTriage(ctx, o)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "pr-triage:", err)
+		fmt.Fprintln(os.Stderr, "pr-manager:", err)
 		if err == errHuman {
 			os.Exit(2)
 		}
@@ -433,7 +433,7 @@ func buildPipeline(o options, policy triage.Policy, gitattrs []string) (*triage.
 		llm.SetEffort(critic, o.reviewEffort)
 		pipe.Summarizer = &triage.Summarizer{LLM: l, Critic: critic, Policy: policy, Tools: o.reviewTools, Language: o.summaryLang}
 	}
-	pipe.Warn = func(msg string) { fmt.Fprintln(os.Stderr, "pr-triage:", msg) }
+	pipe.Warn = func(msg string) { fmt.Fprintln(os.Stderr, "pr-manager:", msg) }
 	return pipe, nil
 }
 
@@ -468,7 +468,7 @@ func openCodeMap(dir string) *codemap.Map {
 		return nil
 	}
 	if _, err := os.Stat(filepath.Join(dir, "meta.json")); err != nil && !filepath.IsAbs(dir) {
-		// Relative to the binary, so a pr-triage run from elsewhere finds it.
+		// Relative to the binary, so a pr-manager run from elsewhere finds it.
 		if exe, err := os.Executable(); err == nil {
 			if alt := filepath.Join(filepath.Dir(exe), dir); fileExists(filepath.Join(alt, "meta.json")) {
 				dir = alt
@@ -477,7 +477,7 @@ func openCodeMap(dir string) *codemap.Map {
 	}
 	m, err := codemap.Open(dir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "pr-triage: code map disabled: %v\n", err)
+		fmt.Fprintf(os.Stderr, "pr-manager: code map disabled: %v\n", err)
 		return nil
 	}
 	return m

@@ -19,7 +19,7 @@ func runDesktop(_ context.Context, o options) error {
 		return err
 	}
 	return wails.Run(&wailsOptions.App{
-		Title:       "PR Triage",
+		Title:       "PR Manager",
 		Width:       1280,
 		Height:      800,
 		MinWidth:    900,

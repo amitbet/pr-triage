@@ -3,7 +3,7 @@ package decls
 import (
 	"strings"
 
-	ts "github.com/amitbet/pr-triage/internal/sitter"
+	ts "github.com/amitbet/pr-manager/internal/sitter"
 )
 
 // The C# parser reads namespaces (block and file-scoped), usings, types

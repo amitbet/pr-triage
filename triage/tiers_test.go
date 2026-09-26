@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/amitbet/pr-triage/codemap"
-	"github.com/amitbet/pr-triage/llm"
+	"github.com/amitbet/pr-manager/codemap"
+	"github.com/amitbet/pr-manager/llm"
 )
 
 // testMap writes a small code map for repo "svc":

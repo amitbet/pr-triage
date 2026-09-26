@@ -4,7 +4,7 @@ import (
 	"path"
 	"strings"
 
-	ts "github.com/amitbet/pr-triage/internal/sitter"
+	ts "github.com/amitbet/pr-manager/internal/sitter"
 )
 
 // The language specs of the generic parser. Each says which nodes declare

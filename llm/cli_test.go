@@ -79,11 +79,11 @@ func fakeCLI(t *testing.T, out string) (bin, argsFile string) {
 import ("encoding/json"; "fmt"; "io"; "os")
 func main() {
 	args, _ := json.Marshal(os.Args[1:])
-	_ = os.WriteFile(os.Getenv("PR_TRIAGE_FAKE_CLI_ARGS"), args, 0600)
+	_ = os.WriteFile(os.Getenv("PR_MANAGER_FAKE_CLI_ARGS"), args, 0600)
 	cwd, _ := os.Getwd()
-	_ = os.WriteFile(os.Getenv("PR_TRIAGE_FAKE_CLI_ARGS")+".cwd", []byte(cwd), 0600)
+	_ = os.WriteFile(os.Getenv("PR_MANAGER_FAKE_CLI_ARGS")+".cwd", []byte(cwd), 0600)
 	_, _ = io.Copy(io.Discard, os.Stdin)
-	fmt.Println(os.Getenv("PR_TRIAGE_FAKE_CLI_OUT"))
+	fmt.Println(os.Getenv("PR_MANAGER_FAKE_CLI_OUT"))
 }`
 	if err := os.WriteFile(src, []byte(program), 0o644); err != nil {
 		t.Fatal(err)
@@ -91,8 +91,8 @@ func main() {
 	if output, err := exec.Command("go", "build", "-o", bin, src).CombinedOutput(); err != nil {
 		t.Fatalf("build fake CLI: %v: %s", err, output)
 	}
-	t.Setenv("PR_TRIAGE_FAKE_CLI_ARGS", argsFile)
-	t.Setenv("PR_TRIAGE_FAKE_CLI_OUT", out)
+	t.Setenv("PR_MANAGER_FAKE_CLI_ARGS", argsFile)
+	t.Setenv("PR_MANAGER_FAKE_CLI_OUT", out)
 	return bin, argsFile
 }
 

@@ -20,14 +20,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amitbet/pr-triage/codemap"
-	"github.com/amitbet/pr-triage/internal/appdirs"
+	"github.com/amitbet/pr-manager/codemap"
+	"github.com/amitbet/pr-manager/internal/appdirs"
 )
 
-// Run executes the code-map command using the same implementation as pr-triage.
+// Run executes the code-map command using the same implementation as pr-manager.
 func Run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: pr-triage codemap build|rank|lookup|top [flags]")
+		return fmt.Errorf("usage: pr-manager codemap build|rank|lookup|top [flags]")
 	}
 	switch args[0] {
 	case "build":
@@ -44,7 +44,7 @@ func Run(args []string) error {
 }
 
 // workspaceRoot finds a workspace containing code/ and optional repos.yaml:
-// -workspace, then $PR_TRIAGE_WORKSPACE, then the
+// -workspace, then $PR_MANAGER_WORKSPACE, then the
 // working directory and its parents.
 func workspaceRoot(flagVal string) (string, error) {
 	isWS := func(d string) bool {
@@ -57,7 +57,7 @@ func workspaceRoot(flagVal string) (string, error) {
 		}
 		return filepath.Abs(flagVal)
 	}
-	for _, d := range []string{os.Getenv("PR_TRIAGE_WORKSPACE")} {
+	for _, d := range []string{os.Getenv("PR_MANAGER_WORKSPACE")} {
 		if d != "" && isWS(d) {
 			return filepath.Abs(d)
 		}
@@ -69,7 +69,7 @@ func workspaceRoot(flagVal string) (string, error) {
 		}
 		p := filepath.Dir(d)
 		if p == d {
-			return "", fmt.Errorf("no workspace found (use -C for one checkout, -workspace or PR_TRIAGE_WORKSPACE)")
+			return "", fmt.Errorf("no workspace found (use -C for one checkout, -workspace or PR_MANAGER_WORKSPACE)")
 		}
 		d = p
 	}
@@ -81,7 +81,7 @@ func cmdBuild(args []string, extract bool) error {
 	force := fs.Bool("force", false, "re-extract every repo")
 	parallel := fs.Int("parallel", max(1, runtime.NumCPU()/3), "repos extracted concurrently")
 	cfgPath := fs.String("config", "", "config file (default embedded rules); output and cache paths in it are relative to its directory")
-	wsFlag := fs.String("workspace", "", "workspace directory containing code/<repo> (default $PR_TRIAGE_WORKSPACE)")
+	wsFlag := fs.String("workspace", "", "workspace directory containing code/<repo> (default $PR_MANAGER_WORKSPACE)")
 	checkout := fs.String("C", "", "index a single git checkout instead of a workspace")
 	outFlag := fs.String("output", "", "override map output directory")
 	cacheFlag := fs.String("cache", "", "override graph cache directory")

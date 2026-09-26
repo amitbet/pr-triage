@@ -4,8 +4,8 @@ import (
 	"math"
 	"strings"
 
-	"github.com/amitbet/pr-triage/codemap"
-	"github.com/amitbet/pr-triage/codemap/githist"
+	"github.com/amitbet/pr-manager/codemap"
+	"github.com/amitbet/pr-manager/codemap/githist"
 )
 
 // repoHistory is one repo's git history summarized for the map.

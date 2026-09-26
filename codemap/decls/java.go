@@ -3,7 +3,7 @@ package decls
 import (
 	"strings"
 
-	ts "github.com/amitbet/pr-triage/internal/sitter"
+	ts "github.com/amitbet/pr-manager/internal/sitter"
 )
 
 // The Java parser reads types (nested ones too), methods, constructors and

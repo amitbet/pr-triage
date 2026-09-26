@@ -11,10 +11,10 @@ for whichever model provider you choose.
 The tap lives in this repository, so tap it by URL once:
 
 ```sh
-brew tap amitbet/pr-triage https://github.com/amitbet/pr-triage
-brew install --cask amitbet/pr-triage/pr-triage
+brew tap amitbet/pr-manager https://github.com/amitbet/pr-manager
+brew install --cask amitbet/pr-manager/pr-manager
 gh auth login
-pr-triage serve
+pr-manager serve
 ```
 
 Homebrew installs `git` and `gh` as dependencies. The server picks an available
@@ -27,36 +27,36 @@ post-install hook. Apple signing and notarization are not configured yet.
 The macOS arm64 desktop app has its own cask:
 
 ```sh
-brew install --cask amitbet/pr-triage/pr-triage-desktop
+brew install --cask amitbet/pr-manager/pr-manager-desktop
 ```
 
-It installs `PR Triage.app` into `/Applications` and removes quarantine the same
-way. If you download `PR-Triage-macos-arm64.zip` from GitHub Releases instead,
+It installs `PR Manager.app` into `/Applications` and removes quarantine the same
+way. If you download `PR-Manager-macos-arm64.zip` from GitHub Releases instead,
 macOS blocks the first launch because the app is ad-hoc signed and not notarized.
 Allow it under System Settings → Privacy & Security → Open Anyway, or run
-`xattr -dr com.apple.quarantine "/Applications/PR Triage.app"`.
+`xattr -dr com.apple.quarantine "/Applications/PR Manager.app"`.
 
 ## Direct downloads, including Windows and Linux
 
 Download the archive for your OS and architecture from GitHub Releases and verify
-it against `checksums.txt`. Extract `pr-triage` or `pr-triage.exe` into a directory
+it against `checksums.txt`. Extract `pr-manager` or `pr-manager.exe` into a directory
 on your PATH. macOS and Linux use `.tar.gz`; Windows uses `.zip`. Both amd64 and
 arm64 are built. On Windows, install Git and GitHub CLI separately, then run:
 
 ```powershell
 gh auth login
-pr-triage.exe serve
+pr-manager.exe serve
 ```
 
 There is no Windows package-manager manifest yet.
 
 ## Data and code maps
 
-Installed commands use `os.UserCacheDir()/pr-triage`:
+Installed commands use `os.UserCacheDir()/pr-manager`:
 
-- macOS: `~/Library/Caches/pr-triage`
-- Linux: `$XDG_CACHE_HOME/pr-triage`, or `~/.cache/pr-triage`
-- Windows: `%LocalAppData%\pr-triage`
+- macOS: `~/Library/Caches/pr-manager`
+- Linux: `$XDG_CACHE_HOME/pr-manager`, or `~/.cache/pr-manager`
+- Windows: `%LocalAppData%\pr-manager`
 
 Results, drafts and clones live under this directory. `-cache DIR` overrides their
 root; `-codemap DIR` independently selects the map output. Existing checkout-local
@@ -64,19 +64,19 @@ root; `-codemap DIR` independently selects the map output. Existing checkout-loc
 `.cache/map` for development.
 
 PR triage builds missing code maps with the bundled indexer. It links the repo from
-the local code directory (`-code-root`, `PR_TRIAGE_CODE_ROOT`) if it is there, else
+the local code directory (`-code-root`, `PR_MANAGER_CODE_ROOT`) if it is there, else
 clones it under `CACHE/workspace/code`, or uses the workspace selected by
-`PR_TRIAGE_WORKSPACE`. `pr-triage index -org ORG` indexes a whole GitHub or GitHub
+`PR_MANAGER_WORKSPACE`. `pr-manager index -org ORG` indexes a whole GitHub or GitHub
 Enterprise org at once (see the README's "Indexing your own repos").
 A workspace can also contain `repos.yaml` metadata alongside `code/` checkouts.
 
 You can also index one local checkout:
 
 ```sh
-pr-triage codemap build -C /path/to/repo
-pr-triage codemap top
-pr-triage codemap lookup 'repo/path/to/file.go'
-pr-triage -C /path/to/repo -classifier off -summarizer off
+pr-manager codemap build -C /path/to/repo
+pr-manager codemap top
+pr-manager codemap lookup 'repo/path/to/file.go'
+pr-manager -C /path/to/repo -classifier off -summarizer off
 ```
 
 `codemap build -C` writes a map for that checkout, replacing the map at its output
@@ -91,14 +91,14 @@ language parsers are compiled into the binary.
 
 `codemap build -config FILE` overrides the embedded scoring rules. Output and graph
 cache paths in that file are relative to its directory; `-output` and `-cache`
-override them. `pr-triage serve -codemap-config FILE` uses the same override for
+override them. `pr-manager serve -codemap-config FILE` uses the same override for
 automatic builds. Start from `codemap/indexer/default.yaml`.
 
 ## Maintainer setup
 
-The Homebrew tap is this repository. CI commits `Casks/pr-triage.rb` to the
-default branch when it publishes a release, so `brew tap amitbet/pr-triage
-https://github.com/amitbet/pr-triage` picks it up. No separate tap repository or
+The Homebrew tap is this repository. CI commits `Casks/pr-manager.rb` to the
+default branch when it publishes a release, so `brew tap amitbet/pr-manager
+https://github.com/amitbet/pr-manager` picks it up. No separate tap repository or
 extra token is needed. The workflow `GITHUB_TOKEN` uploads the release assets
 and pushes the cask. If the default branch is protected, allow GitHub Actions to
 push to it.
@@ -127,10 +127,10 @@ To validate locally:
 ```sh
 goreleaser check
 goreleaser release --snapshot --clean
-python3 scripts/smoke-release.py dist/pr-triage_darwin_arm64_v8.0/pr-triage
+python3 scripts/smoke-release.py dist/pr-manager_darwin_arm64_v8.0/pr-manager
 ```
 
 Use the actual native executable path produced under `dist/` for the smoke check.
 Snapshot mode builds archives and the cask locally without publishing. Releases
-include version, commit and build date, available with `pr-triage version`.
+include version, commit and build date, available with `pr-manager version`.
 GoReleaser is pinned to v2.18.2 in CI and in the tag workflow.

@@ -20,15 +20,15 @@ jobs:
           - os: macos-15
             artifact: macos-arm64
             test_tags: desktop
-            output: dist/desktop/PR-Triage-macos-arm64.zip
+            output: dist/desktop/PR-Manager-macos-arm64.zip
           - os: ubuntu-24.04
             artifact: linux-amd64
             test_tags: desktop,webkit2_41
-            output: dist/desktop/pr-triage-linux-amd64.tar.gz
+            output: dist/desktop/pr-manager-linux-amd64.tar.gz
           - os: windows-latest
             artifact: windows-amd64
             test_tags: desktop
-            output: dist/desktop/pr-triage-windows-amd64.exe
+            output: dist/desktop/pr-manager-windows-amd64.exe
     runs-on: ${{ matrix.os }}
     env:
       CGO_ENABLED: 1
@@ -66,7 +66,7 @@ jobs:
         run: go test -tags desktop ./...
       - uses: actions/upload-artifact@v4
         with:
-          name: pr-triage-desktop-${{ matrix.artifact }}
+          name: pr-manager-desktop-${{ matrix.artifact }}
           path: ${{ matrix.output }}
           if-no-files-found: error
   release:
@@ -83,20 +83,20 @@ jobs:
         run: |
           go vet ./...
           go test ./...
-          go build -o "$RUNNER_TEMP/pr-triage" .
-          python3 scripts/smoke-release.py "$RUNNER_TEMP/pr-triage"
+          go build -o "$RUNNER_TEMP/pr-manager" .
+          python3 scripts/smoke-release.py "$RUNNER_TEMP/pr-manager"
       - uses: actions/download-artifact@v4
         with:
-          pattern: pr-triage-desktop-*
+          pattern: pr-manager-desktop-*
           path: ${{ runner.temp }}/desktop-release
           merge-multiple: true
       - name: Verify desktop packages
         run: |
-          test -s "$RUNNER_TEMP/desktop-release/PR-Triage-macos-arm64.zip"
-          test -s "$RUNNER_TEMP/desktop-release/pr-triage-linux-amd64.tar.gz"
-          test -s "$RUNNER_TEMP/desktop-release/pr-triage-windows-amd64.exe"
+          test -s "$RUNNER_TEMP/desktop-release/PR-Manager-macos-arm64.zip"
+          test -s "$RUNNER_TEMP/desktop-release/pr-manager-linux-amd64.tar.gz"
+          test -s "$RUNNER_TEMP/desktop-release/pr-manager-windows-amd64.exe"
           cd "$RUNNER_TEMP/desktop-release"
-          sha256sum PR-Triage-macos-arm64.zip pr-triage-linux-amd64.tar.gz pr-triage-windows-amd64.exe > desktop-checksums.txt
+          sha256sum PR-Manager-macos-arm64.zip pr-manager-linux-amd64.tar.gz pr-manager-windows-amd64.exe > desktop-checksums.txt
       - name: Check for an existing release
         id: existing
         env:
@@ -107,7 +107,7 @@ jobs:
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
-      # Publishes the archives and commits Casks/pr-triage.rb to main, which
+      # Publishes the archives and commits Casks/pr-manager.rb to main, which
       # makes this repository its own Homebrew tap.
       - uses: goreleaser/goreleaser-action@v6
         if: steps.existing.outputs.exists != 'true'
@@ -121,9 +121,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "$GITHUB_REF_NAME" \
-            "$RUNNER_TEMP/desktop-release/PR-Triage-macos-arm64.zip" \
-            "$RUNNER_TEMP/desktop-release/pr-triage-linux-amd64.tar.gz" \
-            "$RUNNER_TEMP/desktop-release/pr-triage-windows-amd64.exe" \
+            "$RUNNER_TEMP/desktop-release/PR-Manager-macos-arm64.zip" \
+            "$RUNNER_TEMP/desktop-release/pr-manager-linux-amd64.tar.gz" \
+            "$RUNNER_TEMP/desktop-release/pr-manager-windows-amd64.exe" \
             "$RUNNER_TEMP/desktop-release/desktop-checksums.txt" \
             --clobber
       # Casks/** changes do not trigger CI, so this commit does not start a
@@ -136,11 +136,11 @@ jobs:
           for attempt in 1 2 3; do
             git fetch origin main
             git checkout -B main origin/main
-            bash scripts/desktop-cask.sh "$RELEASE_TAG" "$RUNNER_TEMP/desktop-release/PR-Triage-macos-arm64.zip" > Casks/pr-triage-desktop.rb
-            git add Casks/pr-triage-desktop.rb
+            bash scripts/desktop-cask.sh "$RELEASE_TAG" "$RUNNER_TEMP/desktop-release/PR-Manager-macos-arm64.zip" > Casks/pr-manager-desktop.rb
+            git add Casks/pr-manager-desktop.rb
             if git diff --cached --quiet; then exit 0; fi
             git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-              commit -m "Update Homebrew cask for pr-triage-desktop $RELEASE_TAG"
+              commit -m "Update Homebrew cask for pr-manager-desktop $RELEASE_TAG"
             git push origin main && exit 0
             sleep 5
           done

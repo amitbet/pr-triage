@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amitbet/pr-triage/codemap"
-	"github.com/amitbet/pr-triage/codemap/cx"
-	"github.com/amitbet/pr-triage/codemap/decls"
-	"github.com/amitbet/pr-triage/codemap/githist"
+	"github.com/amitbet/pr-manager/codemap"
+	"github.com/amitbet/pr-manager/codemap/cx"
+	"github.com/amitbet/pr-manager/codemap/decls"
+	"github.com/amitbet/pr-manager/codemap/githist"
 )
 
 // Likelihood is how likely a unit's change is to go wrong: the touched

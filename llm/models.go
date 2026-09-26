@@ -139,7 +139,7 @@ func codexModelList(ctx context.Context) ([]Model, error) {
 		_, err := stdin.Write(append(b, '\n'))
 		return err
 	}
-	if err := send(map[string]any{"id": 1, "method": "initialize", "params": map[string]any{"clientInfo": map[string]any{"name": "pr-triage", "version": "0.1"}}}); err != nil {
+	if err := send(map[string]any{"id": 1, "method": "initialize", "params": map[string]any{"clientInfo": map[string]any{"name": "pr-manager", "version": "0.1"}}}); err != nil {
 		return nil, err
 	}
 	sc := bufio.NewScanner(stdout)

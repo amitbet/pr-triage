@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/amitbet/pr-triage/codemap"
+	"github.com/amitbet/pr-manager/codemap"
 )
 
 // treeNode is one area in the code-map treemap: a repo, directory or file,

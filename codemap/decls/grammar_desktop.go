@@ -4,8 +4,8 @@ package decls
 
 import (
 	dart "github.com/UserNobody14/tree-sitter-dart/bindings/go"
-	"github.com/amitbet/pr-triage/internal/powershell"
-	ts "github.com/amitbet/pr-triage/internal/sitter"
+	"github.com/amitbet/pr-manager/internal/powershell"
+	ts "github.com/amitbet/pr-manager/internal/sitter"
 	"github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/bash"
 	"github.com/smacker/go-tree-sitter/c"

@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/amitbet/pr-triage/triage"
+	"github.com/amitbet/pr-manager/triage"
 )
 
 // Draft is a pending review comment. It lives in .cache/drafts until the
