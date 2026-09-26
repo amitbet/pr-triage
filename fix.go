@@ -57,9 +57,10 @@ func (t *triager) startFix(req fixRequest) (*job, error) {
 	if len(fixTargets(r, req)) == 0 {
 		return nil, errors.New("no matching review issues")
 	}
-	j, progress := t.newJob(r.PR.URL)
+	j, ctx, progress := t.newJob(r.PR.URL)
 	go func() {
-		res, err := t.runFix(context.Background(), j.ID, r, req, progress)
+		res, err := t.runFix(ctx, j.ID, r, req, progress)
+		j.finish(err)
 		t.mu.Lock()
 		defer t.mu.Unlock()
 		if err != nil {
@@ -121,7 +122,7 @@ func (t *triager) runFix(ctx context.Context, jobID string, old *PRResult, req f
 	fixLocation := old.LocalFixLocation
 	if fixDir == "" {
 		if old.PR.LocalPath == "" {
-			if _, _, err := t.fetcher.Fetch(ref); err != nil {
+			if _, _, err := t.fetcher.Fetch(ctx, ref); err != nil {
 				return nil, err
 			}
 		}

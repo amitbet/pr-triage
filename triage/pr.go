@@ -2,6 +2,7 @@ package triage
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/amitbet/pr-manager/internal/activity"
 )
 
 // PRRef names a PR. Host is a GitHub Enterprise Server (or ghe.com) host;
@@ -137,10 +140,12 @@ func (f *PRFetcher) lock(slug string) func() {
 	return m.(*sync.Mutex).Unlock
 }
 
-func run(dir, name string, args ...string) (string, error) {
+func run(ctx context.Context, dir, name string, args ...string) (out string, err error) {
+	_, done := activity.Command(ctx, dir, name, args...)
+	defer func() { done(err) }()
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
-	out, err := cmd.Output()
+	b, err := cmd.Output()
 	if err != nil {
 		if name == "gh" {
 			var stderr []byte
@@ -156,7 +161,7 @@ func run(dir, name string, args ...string) (string, error) {
 		}
 		return "", fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
 	}
-	return string(out), nil
+	return string(b), nil
 }
 
 var ghTooOld = regexp.MustCompile(`(?i)unknown (JSON field|flag|shorthand flag|command)`)
@@ -198,8 +203,8 @@ func (f *PRFetcher) RepoDir(ref PRRef) string {
 }
 
 // Fetch resolves the PR with gh, fetches its commits and returns its diff.
-func (f *PRFetcher) Fetch(ref PRRef) (*PRInfo, *Source, error) {
-	raw, err := run("", "gh", "pr", "view", strconv.Itoa(ref.Number), "-R", ref.RepoArg(), "--json",
+func (f *PRFetcher) Fetch(ctx context.Context, ref PRRef) (*PRInfo, *Source, error) {
+	raw, err := run(ctx, "", "gh", "pr", "view", strconv.Itoa(ref.Number), "-R", ref.RepoArg(), "--json",
 		"url,title,author,state,headRefOid,baseRefName,headRefName,body,additions,deletions,mergedAt,mergeCommit")
 	if err != nil {
 		return nil, nil, err
@@ -236,7 +241,7 @@ func (f *PRFetcher) Fetch(ref PRRef) (*PRInfo, *Source, error) {
 		if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 			return nil, nil, err
 		}
-		if _, err := run("", "gh", "repo", "clone", ref.RepoArg(), dir, "--", "--filter=blob:none", "--no-checkout", "--quiet"); err != nil {
+		if _, err := run(ctx, "", "gh", "repo", "clone", ref.RepoArg(), dir, "--", "--filter=blob:none", "--no-checkout", "--quiet"); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -256,10 +261,10 @@ func (f *PRFetcher) Fetch(ref PRRef) (*PRInfo, *Source, error) {
 		baseCandidate = fmt.Sprintf("refs/triage/base/%d", ref.Number)
 		fetch = append(fetch, fmt.Sprintf("+refs/heads/%s:%s", v.BaseRefName, baseCandidate))
 	}
-	if _, err := Git(dir, fetch...); err != nil {
+	if _, err := GitCtx(ctx, dir, fetch...); err != nil {
 		return nil, nil, err
 	}
-	base, err := Git(dir, "merge-base", baseCandidate, v.HeadRefOid)
+	base, err := GitCtx(ctx, dir, "merge-base", baseCandidate, v.HeadRefOid)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -279,7 +284,7 @@ func ListPRs(repoArg, author, state string, limit int) ([]PRRef, error) {
 		return nil, err
 	}
 	base := PRRef{Host: host, Owner: owner, Repo: repo}
-	raw, err := run("", "gh", "pr", "list", "-R", base.RepoArg(), "--author", author, "--state", state,
+	raw, err := run(context.Background(), "", "gh", "pr", "list", "-R", base.RepoArg(), "--author", author, "--state", state,
 		"--limit", strconv.Itoa(limit), "--json", "number")
 	if err != nil {
 		return nil, err

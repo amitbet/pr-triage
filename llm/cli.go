@@ -5,12 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/amitbet/pr-manager/internal/activity"
 )
 
 // Coding-agent subscriptions: instead of an API key, spawn the locally
@@ -83,7 +86,7 @@ func (c *CodexCLI) Call(ctx context.Context, req LLMRequest) (*LLMResponse, erro
 	if system != "" {
 		prompt = system + "\n\n" + prompt
 	}
-	out, err := runCLI(ctx, orDefault(c.Binary, "codex"), args, cwd, prompt, "OPENAI_API_KEY", "CODEX_API_KEY")
+	out, err := runCLI(ctx, orDefault(c.Binary, "codex"), args, cwd, prompt, codexEvent, "OPENAI_API_KEY", "CODEX_API_KEY")
 	if err != nil {
 		return nil, fmt.Errorf("codex/%s: %w", c.ModelID(), err)
 	}
@@ -122,6 +125,45 @@ func (c *CodexCLI) Call(ctx context.Context, req LLMRequest) (*LLMResponse, erro
 		}
 	}
 	return structuredResponse(tool, text, nil, usage)
+}
+
+// codexEvent turns a `codex exec --json` event into an activity line: what
+// the agent thinks and runs. The answer and bookkeeping events are dropped.
+func codexEvent(line string) string {
+	var ev struct {
+		Type string `json:"type"`
+		Item struct {
+			Type     string `json:"type"`
+			Text     string `json:"text"`
+			Command  string `json:"command"`
+			ExitCode *int   `json:"exit_code"`
+		} `json:"item"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal([]byte(line), &ev) != nil {
+		return line
+	}
+	switch ev.Type {
+	case "item.started":
+		if ev.Item.Type == "command_execution" {
+			return "$ " + ev.Item.Command
+		}
+	case "item.completed":
+		switch ev.Item.Type {
+		case "reasoning":
+			return "thinking: " + ev.Item.Text
+		case "command_execution":
+			if ev.Item.ExitCode != nil && *ev.Item.ExitCode != 0 {
+				return fmt.Sprintf("  exit %d: %s", *ev.Item.ExitCode, ev.Item.Command)
+			}
+		case "agent_message":
+		default:
+			return ev.Item.Type + ": " + ev.Item.Text
+		}
+	case "error", "turn.failed":
+		return ev.Type + ": " + ev.Message
+	}
+	return ""
 }
 
 func codexEffort(e string) string {
@@ -192,7 +234,9 @@ func (c *ClaudeCodeCLI) Call(ctx context.Context, req LLMRequest) (*LLMResponse,
 		}
 		args = append(args, "--effort", e)
 	}
-	out, err := runCLI(ctx, orDefault(c.Binary, "claude"), args, cwd, prompt, "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+	// Its one JSON line is the answer, which CallToolIn logs.
+	dropAll := func(string) string { return "" }
+	out, err := runCLI(ctx, orDefault(c.Binary, "claude"), args, cwd, prompt, dropAll, "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 	if err != nil {
 		return nil, fmt.Errorf("claude-code/%s: %w", c.ModelID(), err)
 	}
@@ -361,8 +405,9 @@ func nullable(p map[string]any) map[string]any {
 }
 
 // runCLI runs bin in dir with prompt on stdin and the given env vars unset,
-// and returns stdout.
-func runCLI(ctx context.Context, bin string, args []string, dir, prompt string, unset ...string) ([]byte, error) {
+// and returns stdout. Its output goes to ctx's activity log as it comes,
+// stdout lines through format.
+func runCLI(ctx context.Context, bin string, args []string, dir, prompt string, format func(string) string, unset ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, cliTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
@@ -370,7 +415,16 @@ func runCLI(ctx context.Context, bin string, args []string, dir, prompt string, 
 	cmd.Env = cliEnv(unset...)
 	cmd.Stdin = strings.NewReader(prompt)
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	logOut, logErr := activity.Writer(ctx, ""), activity.Writer(ctx, "stderr: ")
+	logOut.Format = format
+	defer logOut.Flush()
+	defer logErr.Flush()
+	cmd.Stdout, cmd.Stderr = io.MultiWriter(&stdout, logOut), io.MultiWriter(&stderr, logErr)
+	shown := make([]string, len(args))
+	for i, a := range args {
+		shown[i] = truncate(a, 120) // schemas and system prompts
+	}
+	activity.Printf(ctx, "$ %s %s", bin, strings.Join(shown, " "))
 	if err := cmd.Run(); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {

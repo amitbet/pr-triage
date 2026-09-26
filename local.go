@@ -289,9 +289,10 @@ func (t *triager) startLocal(path string, jo jobOptions) (*job, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, errors.New("enter a repository path")
 	}
-	j, progress := t.newJob(path)
+	j, ctx, progress := t.newJob(path)
 	go func() {
-		r, err := t.RunLocal(context.Background(), path, jo, progress)
+		r, err := t.RunLocal(ctx, path, jo, progress)
+		j.finish(err)
 		t.mu.Lock()
 		defer t.mu.Unlock()
 		if err != nil {

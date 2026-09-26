@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -15,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/amitbet/pr-manager/codemap"
+	"github.com/amitbet/pr-manager/internal/activity"
 	"github.com/amitbet/pr-manager/triage"
 )
 
@@ -150,7 +153,7 @@ func indexSources(ctx context.Context, o options, progress func(stage string, do
 		case isLocal:
 			res.Linked = append(res.Linked, name)
 		case had:
-			if _, err := triage.Git(dir, "pull", "--ff-only", "--quiet"); err != nil {
+			if _, err := triage.GitCtx(ctx, dir, "pull", "--ff-only", "--quiet"); err != nil {
 				log.Printf("index: pulling %s: %v", name, err) // index what is there
 			}
 			res.Updated = append(res.Updated, name)
@@ -191,8 +194,15 @@ func addRepo(ctx context.Context, ws, host, owner, repo string, local map[string
 		return fmt.Errorf("%s is not in the code directory and there is no org to clone it from", repo)
 	}
 	ref := triage.PRRef{Host: host, Owner: owner, Repo: repo}
-	clone := exec.CommandContext(ctx, "gh", "repo", "clone", ref.RepoArg(), dir, "--", "--filter=blob:none", "--quiet")
-	if out, err := clone.CombinedOutput(); err != nil {
+	args := []string{"repo", "clone", ref.RepoArg(), dir, "--", "--filter=blob:none", "--quiet"}
+	cctx, done := activity.Command(ctx, "", "gh", args...)
+	clone := exec.CommandContext(ctx, "gh", args...)
+	out, err := clone.CombinedOutput()
+	if msg := tail(out); msg != "" {
+		activity.Printf(cctx, "%s", msg)
+	}
+	done(err)
+	if err != nil {
 		_ = os.RemoveAll(dir)
 		if gerr := triage.GHError(err, out); gerr != nil {
 			return fmt.Errorf("code map: cloning %s: %w", ref.RepoArg(), gerr)
@@ -217,7 +227,16 @@ func buildCodeMap(ctx context.Context, o options, ws, repo string) error {
 	if o.codemapConfig != "" {
 		args = append(args, "-config", o.codemapConfig)
 	}
-	out, err := exec.CommandContext(ctx, exe, args...).CombinedOutput()
+	cctx, done := activity.Command(ctx, "", "pr-manager", args...)
+	var buf bytes.Buffer
+	lw := activity.Writer(cctx, "")
+	cmd := exec.CommandContext(ctx, exe, args...)
+	cmd.Stdout = io.MultiWriter(&buf, lw)
+	cmd.Stderr = cmd.Stdout
+	err = cmd.Run()
+	lw.Flush()
+	done(err)
+	out := buf.Bytes()
 	if err != nil {
 		what := "the workspace"
 		if repo != "" {
@@ -326,9 +345,12 @@ func parseOrg(s string) (host, owner string, err error) {
 // orgRepos lists an org's (or user's) repos with gh, leaving out archived
 // repos and forks.
 func orgRepos(ctx context.Context, host, owner string) ([]string, error) {
-	cmd := exec.CommandContext(ctx, "gh", "repo", "list", owner, "--no-archived", "--source", "--limit", "2000", "--json", "name")
+	args := []string{"repo", "list", owner, "--no-archived", "--source", "--limit", "2000", "--json", "name"}
+	_, done := activity.Command(ctx, "", "gh", args...)
+	cmd := exec.CommandContext(ctx, "gh", args...)
 	cmd.Env = append(os.Environ(), "GH_HOST="+orDefault(host, "github.com")) // gh repo list has no --hostname
 	out, err := cmd.Output()
+	done(err)
 	if err != nil {
 		var stderr []byte
 		var ee *exec.ExitError

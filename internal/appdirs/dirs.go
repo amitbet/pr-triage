@@ -12,9 +12,13 @@ func CacheDir() (string, error) {
 	}
 	dir := filepath.Join(root, "pr-manager")
 	// The project was called pr-triage. Move its cache, drafts included,
-	// the first time the new name is used.
+	// the first time the new name is used, and leave a symlink so a
+	// pr-triage build that is still running keeps finding its files.
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		_ = os.Rename(filepath.Join(root, "pr-triage"), dir)
+		old := filepath.Join(root, "pr-triage")
+		if os.Rename(old, dir) == nil {
+			_ = os.Symlink("pr-manager", old)
+		}
 	}
 	return dir, nil
 }

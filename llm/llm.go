@@ -9,8 +9,12 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/amitbet/pr-manager/internal/activity"
 )
 
 // ChatMessage is a minimal role/content pair used across providers
@@ -196,7 +200,26 @@ func CallTool(ctx context.Context, l LLMTool, msgs []ChatMessage, tool ToolDefin
 }
 
 // CallToolIn is CallTool with a workspace the provider may read (nil: none).
-func CallToolIn(ctx context.Context, l LLMTool, ws *Workspace, msgs []ChatMessage, tool ToolDefinition, maxTokens int32) (map[string]any, Usage, error) {
+func CallToolIn(ctx context.Context, l LLMTool, ws *Workspace, msgs []ChatMessage, tool ToolDefinition, maxTokens int32) (args map[string]any, usage Usage, err error) {
+	chars := 0
+	for _, m := range msgs {
+		chars += len(m.Content)
+	}
+	tools := ""
+	if ws != nil {
+		tools = ", reading " + ws.Dir
+	}
+	activity.Printf(ctx, "→ %s/%s %s: %d prompt chars%s", l.Name(), l.ModelID(), tool.Name, chars, tools)
+	start := time.Now()
+	defer func() {
+		took := time.Since(start).Round(100 * time.Millisecond)
+		if err != nil {
+			activity.Errorf(ctx, "✗ %s after %s: %v", tool.Name, took, err)
+			return
+		}
+		b, _ := json.Marshal(args)
+		activity.Printf(ctx, "← %s in %s, %d in / %d out tokens: %s", tool.Name, took, usage.InputTokens, usage.OutputTokens, b)
+	}()
 	resp, err := l.Call(ctx, LLMRequest{
 		Messages:   msgs,
 		Tools:      []ToolDefinition{tool},

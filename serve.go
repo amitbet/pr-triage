@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/amitbet/pr-manager/codemap"
+	"github.com/amitbet/pr-manager/internal/activity"
 	"github.com/amitbet/pr-manager/llm"
 	"github.com/amitbet/pr-manager/triage"
 )
@@ -119,6 +120,8 @@ type job struct {
 	Error  string `json:"error,omitempty"`
 	Key    string `json:"key,omitempty"`
 	Result any    `json:"result,omitempty"` // index jobs
+
+	log *activity.Log
 }
 
 func newTriager(o options) (*triager, error) {
@@ -211,7 +214,7 @@ func (t *triager) latestCached(ref triage.PRRef, head, lang string) (*PRResult, 
 func (t *triager) Run(ctx context.Context, ref triage.PRRef, jo jobOptions, progress func(stage string, done, total int)) (*PRResult, error) {
 	o := t.options(jo)
 	progress("fetch", 0, 0)
-	info, src, err := t.fetcher.Fetch(ref)
+	info, src, err := t.fetcher.Fetch(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -356,26 +359,38 @@ func (t *triager) List() ([]prSummary, error) {
 	return out, nil
 }
 
-func (t *triager) newJob(url string) (*job, func(stage string, done, total int)) {
+// newJob registers a running job. The context carries the job's activity
+// log; progress also logs each new stage to it.
+func (t *triager) newJob(url string) (*job, context.Context, func(stage string, done, total int)) {
 	var idb [6]byte
 	_, _ = rand.Read(idb[:])
-	j := &job{ID: hex.EncodeToString(idb[:]), URL: url, Status: "running"}
+	j := &job{ID: hex.EncodeToString(idb[:]), URL: url, Status: "running", log: activity.New()}
 	t.mu.Lock()
 	t.jobs[j.ID] = j
 	t.mu.Unlock()
-	return j, func(stage string, done, total int) {
+	ctx := activity.With(context.Background(), j.log)
+	activity.Printf(ctx, "started %s", url)
+	return j, ctx, func(stage string, done, total int) {
 		t.mu.Lock()
+		changed := j.Stage != stage
 		j.Stage, j.Done, j.Total = stage, done, total
 		t.mu.Unlock()
+		if changed {
+			activity.Printf(ctx, "stage %s", stage)
+		}
 	}
 }
+
+// finish records the job's outcome in its log.
+func (j *job) finish(err error) { j.log.Close(err) }
 
 // startIndex runs indexSources as a job; the job's Result is the summary.
 func (t *triager) startIndex(jo jobOptions) *job {
 	o := t.options(jo)
-	j, progress := t.newJob("index")
+	j, ctx, progress := t.newJob("index")
 	go func() {
-		res, err := indexSources(context.Background(), o, progress)
+		res, err := indexSources(ctx, o, progress)
+		j.finish(err)
 		t.mu.Lock()
 		defer t.mu.Unlock()
 		if err != nil {
@@ -394,9 +409,10 @@ func (t *triager) start(url string, jo jobOptions) (*job, error) {
 	if err != nil {
 		return nil, err
 	}
-	j, progress := t.newJob(ref.URL())
+	j, ctx, progress := t.newJob(ref.URL())
 	go func() {
-		r, err := t.Run(context.Background(), ref, jo, progress)
+		r, err := t.Run(ctx, ref, jo, progress)
+		j.finish(err)
 		t.mu.Lock()
 		defer t.mu.Unlock()
 		if err != nil {
@@ -408,6 +424,17 @@ func (t *triager) start(url string, jo jobOptions) (*job, error) {
 		log.Printf("triage %s: %v (%s)", j.URL, r.Counts, r.Key)
 	}()
 	return j, nil
+}
+
+// jobLog is the activity of a job, for the UI to watch while it runs.
+func (t *triager) jobLog(id string) ([]activity.Thread, bool) {
+	t.mu.Lock()
+	j, ok := t.jobs[id]
+	t.mu.Unlock()
+	if !ok {
+		return nil, false
+	}
+	return j.log.Snapshot(), true
 }
 
 func (t *triager) job(id string) (job, bool) {
@@ -562,6 +589,14 @@ func newServeHandler(o options) (http.Handler, error) {
 			return
 		}
 		writeJSON(w, 200, j)
+	})
+	mux.HandleFunc("GET /api/jobs/{id}/log", func(w http.ResponseWriter, r *http.Request) {
+		threads, ok := t.jobLog(r.PathValue("id"))
+		if !ok {
+			writeErr(w, 404, errors.New("no such job"))
+			return
+		}
+		writeJSON(w, 200, threads)
 	})
 
 	return mux, nil

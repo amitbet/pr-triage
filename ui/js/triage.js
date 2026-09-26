@@ -1,6 +1,8 @@
-// Header triage form: starts a job and polls it until the result is ready.
+// Header triage form: starts a job and polls it until the result is ready,
+// showing the job's activity log meanwhile.
 import { $, esc, api, postJSON } from "./util.js";
 import { jobSettings } from "./settings.js";
+import { mountActivity } from "./activity.js";
 
 let onDone = async () => {};
 
@@ -13,10 +15,18 @@ async function triage() {
   $("#main").innerHTML = `<div class="progress">starting…</div>`;
   try {
     const job = await postJSON("/api/triage", body);
+    $("#main").innerHTML = `<div class="progress"><div class="progress-what"></div></div><div class="activity"></div>`;
+    const refreshLog = mountActivity($("#main .activity"), job.id);
     for (;;) {
       const j = await api(`/api/jobs/${job.id}`);
+      await refreshLog().catch(() => {});
       if (j.status === "done") { await onDone(j.key); break; }
-      if (j.status === "error") throw new Error(j.error);
+      if (j.status === "error") {
+        const p = $("#main .progress");
+        if (p) p.outerHTML = `<div class="error">${esc(j.error)}</div>`;
+        else $("#main").innerHTML = `<div class="error">${esc(j.error)}</div>`;
+        return; // the log stays up to show what failed
+      }
       const pct = j.total ? Math.round((100 * j.done) / j.total) : 0;
       const repo = isPath ? "this repo" : j.url.split("/")[4] || "this repo";
       const what = {
@@ -25,7 +35,8 @@ async function triage() {
         clone: `${repo} is not in the code map: cloning it into the workspace…`,
         codemap: `${repo} is not in the code map: building it before triage (a few minutes the first time)…`,
       }[j.stage] || `${j.stage} ${j.done}/${j.total} units`;
-      $("#main").innerHTML = `<div class="progress">${esc(j.url)}<br>${esc(what)}<div class="bar"><div style="width:${pct}%"></div></div></div>`;
+      const w = $("#main .progress-what"); // gone if another result was opened
+      if (w) w.innerHTML = `${esc(j.url)}<br>${esc(what)}<div class="bar"><div style="width:${pct}%"></div></div>`;
       await new Promise((res) => setTimeout(res, 700));
     }
   } catch (e) {

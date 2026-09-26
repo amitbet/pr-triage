@@ -1,0 +1,28 @@
+/* Activity log shown while a triage job runs. */
+.progress:has(+ .activity) { padding: 24px 40px 8px; }
+.activity { max-width: 1100px; margin: 8px auto 0; }
+.act { border: 1px solid var(--border); border-radius: 8px; background: var(--bg2); overflow: hidden; }
+.act-head { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.act-count { color: var(--muted); }
+.act-opt { display: flex; gap: 4px; align-items: center; color: var(--muted); }
+.act-list { max-height: calc(100vh - 260px); overflow-y: auto; }
+.act-list.hide-done .act-thread[data-status="done"] { display: none; }
+.act-thread { border-bottom: 1px solid var(--border); background: var(--bg); }
+.act-thread:last-child { border-bottom: 0; }
+.act-thread summary { display: flex; align-items: center; gap: 8px; padding: 5px 12px; cursor: pointer; font-size: 13px; list-style: none; }
+.act-thread summary::-webkit-details-marker { display: none; }
+.act-thread summary::before { content: "▸"; color: var(--muted); width: 10px; }
+.act-thread[open] summary::before { content: "▾"; }
+.act-thread summary:hover { background: var(--bg3); }
+.act-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.act-thread[data-status="running"] .act-dot { background: var(--accent); animation: act-pulse 1s infinite alternate; }
+.act-thread[data-status="done"] .act-dot { background: var(--none); }
+.act-thread[data-status="error"] .act-dot { background: var(--human); }
+@keyframes act-pulse { to { opacity: .3; } }
+.act-kind { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); background: var(--bg3); border-radius: 4px; padding: 0 6px; flex: none; }
+.act-name { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.act-time { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.act-lines { margin: 0; padding: 6px 12px 8px 30px; max-height: 320px; overflow: auto; font: 12px/1.45 var(--mono); background: var(--bg2); border-top: 1px solid var(--border); white-space: pre-wrap; overflow-wrap: anywhere; }
+.act-lines:empty::after { content: "no output yet"; color: var(--muted); }
+.act-line.err { color: var(--human); }
+.act-ts { color: var(--muted); margin-right: 8px; user-select: none; }

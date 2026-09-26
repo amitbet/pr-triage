@@ -267,6 +267,7 @@ jobs:
       - name: Publish desktop checksums
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.version.outputs.tag }}
         run: |
           cd "$RUNNER_TEMP/desktop-release"

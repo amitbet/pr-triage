@@ -2,10 +2,13 @@ package triage
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/amitbet/pr-manager/internal/activity"
 )
 
 type FileStatus string
@@ -40,6 +43,13 @@ type FileDiff struct {
 
 // Git runs git in dir and returns stdout.
 func Git(dir string, args ...string) (string, error) {
+	return GitCtx(context.Background(), dir, args...)
+}
+
+// GitCtx is Git, logged to ctx's activity log.
+func GitCtx(ctx context.Context, dir string, args ...string) (_ string, err error) {
+	_, done := activity.Command(ctx, dir, "git", args...)
+	defer func() { done(err) }()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	out, err := cmd.Output()

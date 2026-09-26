@@ -5,6 +5,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/amitbet/pr-manager/internal/activity"
 	"github.com/amitbet/pr-manager/llm"
 	"golang.org/x/sync/errgroup"
 )
@@ -178,7 +179,9 @@ func (p *Pipeline) each(ctx context.Context, stage string, limit int, units []*U
 	g.SetLimit(max(1, limit))
 	for _, u := range units {
 		g.Go(func() error {
+			ctx, t := activity.Start(ctx, "llm", "%s %s", stage, u.ID)
 			fn(ctx, u)
+			t.Finish(nil)
 			mu.Lock()
 			done++
 			report()
