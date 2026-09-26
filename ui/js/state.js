@@ -25,7 +25,7 @@ let renderFn = () => {};
 export const onRender = (fn) => { renderFn = fn; };
 export const render = () => renderFn();
 
-export const prBase = () => { const p = S.result.pr; return `/api/prs/${p.host || "github.com"}/${p.owner}/${p.repo}/${p.number}`; };
+export const prBase = () => { const p = S.result.pr; return p.local_path ? `/api/local/${encodeURIComponent(S.result.key)}` : `/api/prs/${p.host || "github.com"}/${p.owner}/${p.repo}/${p.number}`; };
 // repoName is owner/repo, with the host for GitHub Enterprise repos.
 export const repoName = (p) => `${p.host ? `${p.host}/` : ""}${p.owner}/${p.repo}`;
 export const allUnits = () => S.result.files.flatMap((f) => (f.units || []).map((u) => ({ u, f })));
@@ -35,7 +35,9 @@ export const fileOfUnit = (id) => S.result.files.find((f) => (f.units || []).som
 // syncURL keeps ?pr, ?key and ?tab shareable.
 export function syncURL() {
   if (!S.result) return;
-  const q = new URLSearchParams({ pr: S.result.pr.url, key: S.result.key });
+  const q = new URLSearchParams({ key: S.result.key });
+  if (S.result.pr.local_path) q.set("path", S.result.pr.local_path);
+  else q.set("pr", S.result.pr.url);
   if (S.tab !== "review") q.set("tab", S.tab);
   history.replaceState(null, "", `?${q}`);
 }

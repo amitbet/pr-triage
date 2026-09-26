@@ -94,6 +94,8 @@ type prSummary struct {
 	Impact     *triage.Impact        `json:"impact,omitempty"`
 	Likelihood *triage.Likelihood    `json:"likelihood,omitempty"`
 	Attention  int                   `json:"attention"`
+	LocalPath  string                `json:"local_path,omitempty"`
+	HeadRef    string                `json:"head_ref,omitempty"`
 }
 
 // triager runs PR triage jobs and caches results as JSON files.
@@ -242,6 +244,10 @@ func (t *triager) Run(ctx context.Context, ref triage.PRRef, jo jobOptions, prog
 	if m := loadCodeMap(o.codemapDir); m != nil {
 		pipe.CodeMap = &triage.CodeMap{Map: m, Repo: ref.Repo}
 	}
+	return t.runSource(ctx, key, info, src, pipe, o)
+}
+
+func (t *triager) runSource(ctx context.Context, key string, info *triage.PRInfo, src *triage.Source, pipe *triage.Pipeline, o options) (*PRResult, error) {
 	start := time.Now()
 	units := pipe.Run(ctx, src)
 	if err := ctx.Err(); err != nil {
@@ -338,7 +344,7 @@ func (t *triager) List() ([]prSummary, error) {
 		if err != nil {
 			continue
 		}
-		out = append(out, prSummary{Key: r.Key, PR: r.PR.PRRef, Title: r.PR.Title, State: r.PR.State,
+		out = append(out, prSummary{Key: r.Key, PR: r.PR.PRRef, Title: r.PR.Title, State: r.PR.State, LocalPath: r.PR.LocalPath, HeadRef: r.PR.HeadRef,
 			Classifier: r.Classifier, CreatedAt: r.CreatedAt, Counts: r.Counts, Impact: r.Impact, Likelihood: r.Likelihood, Attention: r.Attention})
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -488,19 +494,53 @@ func newServeHandler(o options) (http.Handler, error) {
 	})
 	mux.HandleFunc("POST /api/triage", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			URL string `json:"url"`
+			URL  string `json:"url"`
+			Path string `json:"path"`
 			jobOptions
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeErr(w, 400, err)
 			return
 		}
-		j, err := t.start(req.URL, req.jobOptions)
+		var j *job
+		if req.Path != "" {
+			j, err = t.startLocal(req.Path, req.jobOptions)
+		} else {
+			j, err = t.start(req.URL, req.jobOptions)
+		}
 		if err != nil {
 			writeErr(w, 400, err)
 			return
 		}
 		writeJSON(w, 202, j)
+	})
+	mux.HandleFunc("POST /api/local/{key}/publish", func(w http.ResponseWriter, r *http.Request) {
+		res, err := t.Load(r.PathValue("key"))
+		if err != nil {
+			writeErr(w, 404, err)
+			return
+		}
+		url, err := publishLocal(res)
+		if err != nil {
+			writeErr(w, 400, err)
+			return
+		}
+		res.PR.URL = url
+		res.PR.State = "OPEN"
+		if b, err := json.Marshal(res); err == nil {
+			if err = os.WriteFile(filepath.Join(t.results, res.Key+".json"), b, 0644); err != nil {
+				log.Printf("save published PR link: %v", err)
+			}
+		}
+		if ref, err := triage.ParsePRRef(url); err == nil {
+			localRef := triage.PRRef{Owner: "local", Repo: localPathID(res.PR.LocalPath)}
+			if ds, err := rv.load(localRef); err == nil && len(ds) > 0 {
+				if err := rv.save(ref, ds); err != nil {
+					log.Printf("copy local review notes: %v", err)
+				}
+			}
+		}
+		writeJSON(w, 200, map[string]string{"url": url})
 	})
 	mux.HandleFunc("POST /api/fix", func(w http.ResponseWriter, r *http.Request) {
 		var req fixRequest

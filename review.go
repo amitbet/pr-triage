@@ -109,6 +109,138 @@ func (r *reviews) fileLines(ref triage.PRRef, sha, path string) ([]string, error
 
 func (r *reviews) routes(mux *http.ServeMux, t *triager) {
 	const pr = "/api/prs/{host}/{owner}/{repo}/{number}"
+	const local = "/api/local/{key}"
+	localResult := func(req *http.Request) (*PRResult, triage.PRRef, error) {
+		res, err := t.Load(req.PathValue("key"))
+		if err != nil {
+			return nil, triage.PRRef{}, err
+		}
+		if res.PR.LocalPath == "" {
+			return nil, triage.PRRef{}, errors.New("not a local result")
+		}
+		return res, triage.PRRef{Owner: "local", Repo: localPathID(res.PR.LocalPath)}, nil
+	}
+	mux.HandleFunc("GET "+local+"/file", func(w http.ResponseWriter, req *http.Request) {
+		res, _, err := localResult(req)
+		if err != nil {
+			writeErr(w, 404, err)
+			return
+		}
+		path := req.URL.Query().Get("path")
+		if !safeRepoPath(path) {
+			writeErr(w, 400, errors.New("bad file path"))
+			return
+		}
+		found := false
+		for _, f := range res.Files {
+			if f.Path == path || f.OldPath == path {
+				found = true
+				break
+			}
+		}
+		if !found {
+			writeErr(w, 404, errors.New("file is not in the reviewed diff"))
+			return
+		}
+		var b []byte
+		if req.URL.Query().Get("side") == "base" {
+			var s string
+			s, err = triage.Git(res.PR.LocalPath, "show", res.PR.BaseOid+":"+path)
+			b = []byte(s)
+		} else {
+			b, err = readLocalFile(res.PR.LocalPath, path)
+		}
+		if err != nil {
+			writeErr(w, 404, err)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"lines": strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")})
+	})
+	mux.HandleFunc("GET "+local+"/drafts", func(w http.ResponseWriter, req *http.Request) {
+		_, ref, err := localResult(req)
+		if err != nil {
+			writeErr(w, 404, err)
+			return
+		}
+		ds, err := r.load(ref)
+		if err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		writeJSON(w, 200, ds)
+	})
+	mux.HandleFunc("POST "+local+"/drafts", func(w http.ResponseWriter, req *http.Request) {
+		_, ref, err := localResult(req)
+		if err != nil {
+			writeErr(w, 404, err)
+			return
+		}
+		var d Draft
+		if err = json.NewDecoder(req.Body).Decode(&d); err != nil {
+			writeErr(w, 400, err)
+			return
+		}
+		d.Body = strings.TrimSpace(d.Body)
+		if !safeRepoPath(d.Path) || d.Line <= 0 || (d.Side != "LEFT" && d.Side != "RIGHT") || d.Body == "" {
+			writeErr(w, 400, errors.New("draft needs path, line, side and body"))
+			return
+		}
+		r.dmu.Lock()
+		defer r.dmu.Unlock()
+		ds, err := r.load(ref)
+		if err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		if d.ID == "" {
+			var b [6]byte
+			_, _ = rand.Read(b[:])
+			d.ID, d.Created = hex.EncodeToString(b[:]), time.Now()
+			ds = append(ds, d)
+		} else {
+			found := false
+			for i := range ds {
+				if ds[i].ID == d.ID {
+					ds[i].Body = d.Body
+					found = true
+				}
+			}
+			if !found {
+				writeErr(w, 404, errors.New("no such draft"))
+				return
+			}
+		}
+		if err = r.save(ref, ds); err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		writeJSON(w, 200, ds)
+	})
+	mux.HandleFunc("DELETE "+local+"/drafts/{id}", func(w http.ResponseWriter, req *http.Request) {
+		_, ref, err := localResult(req)
+		if err != nil {
+			writeErr(w, 404, err)
+			return
+		}
+		r.dmu.Lock()
+		defer r.dmu.Unlock()
+		ds, err := r.load(ref)
+		if err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		out := ds[:0]
+		for _, d := range ds {
+			if d.ID != req.PathValue("id") {
+				out = append(out, d)
+			}
+		}
+		if err = r.save(ref, out); err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		writeJSON(w, 200, out)
+	})
 
 	// GET ?key=<result key>&path=...&side=head|base -> {lines: [...]}
 	mux.HandleFunc("GET "+pr+"/file", func(w http.ResponseWriter, req *http.Request) {

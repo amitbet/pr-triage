@@ -51,6 +51,9 @@ func (t *triager) startFix(req fixRequest) (*job, error) {
 	if err != nil {
 		return nil, err
 	}
+	if r.PR.LocalPath != "" && ((r.PR.Uncommitted && r.LocalFixDir == "") || req.Location == "clone") {
+		return nil, errors.New("local fixes need a committed change and a separate worktree")
+	}
 	if len(fixTargets(r, req)) == 0 {
 		return nil, errors.New("no matching review issues")
 	}
@@ -95,8 +98,21 @@ func (t *triager) runFix(ctx context.Context, jobID string, old *PRResult, req f
 	if o.summarizer == "off" {
 		return nil, errors.New("enable a summarizer to fix and review issues")
 	}
+	if old.PR.LocalPath != "" && old.LocalFixDir == "" {
+		s, err := inspectLocal(ctx, old.PR.LocalPath)
+		if err != nil {
+			return nil, err
+		}
+		if s.info.SnapshotHash != old.PR.SnapshotHash || s.info.HeadOid != old.PR.HeadOid || s.info.HeadRef != old.PR.HeadRef {
+			return nil, errors.New("repository changed since triage; triage it again before fixing")
+		}
+	}
 	ref := old.PR.PRRef
-	repoDir, err := filepath.Abs(t.fetcher.RepoDir(ref))
+	repoPath := t.fetcher.RepoDir(ref)
+	if old.PR.LocalPath != "" {
+		repoPath = old.PR.LocalPath
+	}
+	repoDir, err := filepath.Abs(repoPath)
 	if err != nil {
 		return nil, err
 	}
@@ -104,8 +120,10 @@ func (t *triager) runFix(ctx context.Context, jobID string, old *PRResult, req f
 	fixBranch := old.LocalFixBranch
 	fixLocation := old.LocalFixLocation
 	if fixDir == "" {
-		if _, _, err := t.fetcher.Fetch(ref); err != nil {
-			return nil, err
+		if old.PR.LocalPath == "" {
+			if _, _, err := t.fetcher.Fetch(ref); err != nil {
+				return nil, err
+			}
 		}
 		fixLocation = req.Location
 		if fixLocation == "" {
@@ -192,6 +210,13 @@ func (t *triager) runFix(ctx context.Context, jobID string, old *PRResult, req f
 			return nil, fmt.Errorf("round %d review: %w (worktree: %s)", round, err, fixDir)
 		}
 		next.LocalFixDir = fixDir
+		if old.PR.LocalPath != "" {
+			snapshot, err := inspectLocal(ctx, fixDir)
+			if err != nil {
+				return nil, err
+			}
+			next.PR = snapshot.info
+		}
 		next.LocalFixBranch = fixBranch
 		next.LocalFixLocation = fixLocation
 		next.FixRounds = current.FixRounds + 1

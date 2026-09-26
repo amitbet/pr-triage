@@ -14,7 +14,7 @@
 <body>
 <header>
   <h1>pr-triage</h1>
-  <input id="url" placeholder="https://github.com/owner/repo/pull/123 (or a GitHub Enterprise PR)" spellcheck="false">
+  <input id="url" placeholder="PR URL or local repository path" spellcheck="false">
   <button id="go" class="primary">Triage</button>
   <label class="rerun"><input type="checkbox" id="force"> re-run</label>
   <button id="settings-btn" class="icon" title="Settings" aria-label="Settings" aria-haspopup="dialog">
@@ -25,10 +25,10 @@
 </header>
 <div class="layout">
   <aside>
-    <h2>Triaged PRs</h2>
+    <h2>Triaged changes</h2>
     <div id="list"></div>
   </aside>
-  <main id="main"><div class="empty">Paste a PR link above, or pick a triaged PR on the left.</div></main>
+  <main id="main"><div class="empty">Enter a PR link or repository path above, or pick a result on the left.</div></main>
 </div>
 <div id="panel" class="panel" hidden></div>
 <dialog id="settings" class="settings-dlg" aria-labelledby="settings-title">

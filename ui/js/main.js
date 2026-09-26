@@ -5,7 +5,7 @@
 // export `actions`: handlers keyed by data-act. A handler changes state and
 // returns nothing to have the page re-rendered, or false when it rendered
 // (or deliberately didn't) itself.
-import { $, esc, api } from "./util.js";
+import { $, esc, api, postJSON } from "./util.js";
 import { S, onRender, render, syncURL, prBase, repoName } from "./state.js";
 import { impactPill, likelihoodPill, attLevel } from "./scores.js";
 import { prepare, actions as diffActions } from "./diff.js";
@@ -31,17 +31,31 @@ const TABS = [
 const actions = {
   ...diffActions, ...commentActions, ...reviewActions, ...walkActions, ...treemapActions, ...fixActions,
   tab: (el) => { S.tab = el.dataset.tab; syncURL(); },
+  "create-pr": async (el) => {
+    el.disabled = true;
+    el.textContent = "Creating PR…";
+    try {
+      const out = await postJSON(`/api/local/${encodeURIComponent(S.result.key)}/publish`, {});
+      S.result.pr.url = out.url;
+      render();
+      triageURL(out.url);
+    } catch (e) { alert(e.message); el.disabled = false; el.textContent = "Create PR"; }
+    return false;
+  },
 };
 
 function prHeadHTML(r) {
   const pr = r.pr;
+  const local = !!pr.local_path;
+  const publishHint = pr.uncommitted ? "Commit changes and triage again" : !pr.ahead ? "No commits ahead of the base branch" : pr.owner === "local" ? "Set a GitHub origin remote" : "";
   return `
     <div class="pr-head">
-      <h2><a href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(pr.title)}</a> <span style="color:var(--muted);font-weight:400">#${pr.number}</span></h2>
-      <div class="meta">${esc(repoName(pr))} · ${esc(pr.author)} · ${esc(pr.state.toLowerCase())} ·
+      <h2>${local ? esc(pr.title || pr.head_ref) : `<a href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(pr.title)}</a> <span style="color:var(--muted);font-weight:400">#${pr.number}</span>`}</h2>
+      <div class="meta">${local ? `<code>${esc(pr.local_path)}</code>` : esc(repoName(pr))} · ${esc(pr.author)} · ${esc(pr.state.toLowerCase())} ·
         <code>${esc(pr.base_ref)}@${esc(pr.base_oid.slice(0, 8))}</code> ← <code>${esc(pr.head_ref)}@${esc(pr.head_oid.slice(0, 8))}</code> ·
         +${pr.additions}/−${pr.deletions} · classify <code>${esc(r.classifier)}</code> · summarize <code>${esc(r.summarizer)}</code>${r.summary_lang ? ` in ${esc(r.summary_lang)}` : ""} ·
         ${(r.duration_ms / 1000).toFixed(1)}s</div>
+      ${local ? `<div class="meta" style="margin-top:6px">${pr.ahead} commit${pr.ahead === 1 ? "" : "s"} ahead, ${pr.behind} behind origin/${esc(pr.base_ref)}${pr.uncommitted ? " · includes working tree changes" : ""} · ${pr.url ? `<a href="${esc(pr.url)}" target="_blank" rel="noopener">Open PR</a>` : `<button class="primary" data-act="create-pr" ${publishHint ? `disabled title="${esc(publishHint)}"` : ""}>Create PR</button>${publishHint ? ` <span>${esc(publishHint)}</span>` : ""}`}</div>` : ""}
       ${r.impact || r.likelihood || r.attention ? `<div class="meta" style="margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         ${impactPill(r.impact, "max impact")}${r.impact?.basis ? `<code>${esc(r.impact.basis)}</code>` : ""}
         ${likelihoodPill(r.likelihood, "max likelihood")}
@@ -75,7 +89,7 @@ async function showKey(key) {
   S.drafts = await api(`${prBase()}/drafts`).catch(() => []);
   prepare(r);
   syncURL();
-  $("#url").value = r.pr.url;
+  $("#url").value = r.pr.local_path || r.pr.url;
   closePanel();
   render();
   refreshSettings();
@@ -103,5 +117,5 @@ document.addEventListener("keydown", walkKeydown);
   const q = new URLSearchParams(location.search);
   if (TABS.some((t) => t.id === q.get("tab"))) S.tab = q.get("tab");
   if (q.get("key")) await showKey(q.get("key")).catch(() => {});
-  else if (q.get("pr")) triageURL(q.get("pr"));
+  else if (q.get("pr") || q.get("path")) triageURL(q.get("pr") || q.get("path"));
 })();

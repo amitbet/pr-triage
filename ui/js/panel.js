@@ -25,33 +25,38 @@ export function initPanel(jump) {
 export function updateReviewButton() {
   const n = S.drafts.length;
   $("#review-btn").hidden = false;
-  $("#review-btn").innerHTML = `Review${n ? ` <span class="pill draft">${n}</span>` : ""}`;
+  $("#review-btn").innerHTML = `${S.result.pr.local_path ? "Notes" : "Review"}${n ? ` <span class="pill draft">${n}</span>` : ""}`;
 }
 
 export function renderPanel() {
   const p = $("#panel");
   const ds = S.drafts;
   const dry = S.cfg?.review_dry_run;
+  const local = !!S.result.pr.local_path;
   p.innerHTML = `
-    <h3>Submit review${dry ? ` <span class="chip">dry run: nothing is posted</span>` : ""}</h3>
+    <h3>${local ? "Review notes" : "Submit review"}${!local && dry ? ` <span class="chip">dry run: nothing is posted</span>` : ""}</h3>
+    ${local ? `<p class="hint">Create the PR when the branch is ready. Pending comments are saved here.</p>` : ""}
+    ${local ? "" : `
     <textarea id="rv-body" placeholder="Review summary (optional for Comment and Approve)">${esc(RV.body)}</textarea>
     <div class="ev">
       ${[["COMMENT", "Comment", "Feedback without approving."],
          ["APPROVE", "Approve", "GitHub won't let you approve your own PR."],
          ["REQUEST_CHANGES", "Request changes", "Needs a summary."]].map(([v, l, h]) =>
         `<label><input type="radio" name="rv-ev" value="${v}" ${RV.event === v ? "checked" : ""}> ${l}<small>${h}</small></label>`).join("")}
-    </div>
+    </div>`}
     <div class="dl">${ds.length ? ds.map((d) => `<a href="#" data-jump="${d.id}">${esc(d.path)}:${d.line} (${d.side === "LEFT" ? "old" : "new"}) · ${esc(d.body.slice(0, 80))}</a>`).join("") : `<div style="padding:6px 0;color:var(--muted)">No pending line comments. Hover a line and click + to add one.</div>`}</div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button id="rv-close">Close</button>
-      <button id="rv-submit" class="primary" ${RV.busy ? "disabled" : ""}>${RV.busy ? "Submitting…" : `Submit review${ds.length ? ` (${ds.length} comment${ds.length > 1 ? "s" : ""})` : ""}`}</button>
+      ${local ? "" : `<button id="rv-submit" class="primary" ${RV.busy ? "disabled" : ""}>${RV.busy ? "Submitting…" : `Submit review${ds.length ? ` (${ds.length} comment${ds.length > 1 ? "s" : ""})` : ""}`}</button>`}
     </div>
     ${RV.msg ? `<div class="msg ${RV.err ? "err" : ""}">${RV.msg}</div>` : ""}
     ${RV.payload ? `<pre>${esc(JSON.stringify(RV.payload, null, 2))}</pre>` : ""}`;
-  $("#rv-body").oninput = (e) => RV.body = e.target.value;
-  p.querySelectorAll("input[name=rv-ev]").forEach((i) => i.onchange = () => RV.event = i.value);
+  if (!local) {
+    $("#rv-body").oninput = (e) => RV.body = e.target.value;
+    p.querySelectorAll("input[name=rv-ev]").forEach((i) => i.onchange = () => RV.event = i.value);
+    $("#rv-submit").onclick = submitReview;
+  }
   $("#rv-close").onclick = closePanel;
-  $("#rv-submit").onclick = submitReview;
   p.querySelectorAll("[data-jump]").forEach((a) => a.onclick = (e) => {
     e.preventDefault();
     onJump(S.drafts.find((x) => x.id === a.dataset.jump));

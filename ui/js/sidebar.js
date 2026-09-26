@@ -33,8 +33,9 @@ export async function loadList() {
   const repos = new Map();
   for (const r of list) {
     const repo = repoName(r.pr);
-    if (seen.has(`${repo}#${r.pr.number}`)) continue;
-    seen.add(`${repo}#${r.pr.number}`);
+    const identity = r.local_path ? `${r.local_path}#${r.head_ref}` : `${repo}#${r.pr.number}`;
+    if (seen.has(identity)) continue;
+    seen.add(identity);
     if (!repos.has(repo)) repos.set(repo, []);
     repos.get(repo).push(r);
   }
@@ -48,11 +49,11 @@ export async function loadList() {
       <button class="repo-head" data-repo="${esc(repo)}">
         <span class="caret">${open ? "▾" : "▸"}</span>
         <span class="rn" title="${esc(repo)}">${esc(repo)}</span>
-        <span class="rc" title="${prs.length} PRs, ${human} units need human review">${prs.length}</span>
+        <span class="rc" title="${prs.length} results, ${human} units need human review">${prs.length}</span>
       </button>
       <div class="repo-prs">${prs.map((r) => `
         <a class="pr-item ${S.result?.key === r.key ? "active" : ""}" data-key="${esc(r.key)}">
-          <span class="t">#${r.pr.number} ${esc(r.title)}</span>
+          <span class="t">${r.local_path ? esc(r.head_ref) : `#${r.pr.number}`} ${esc(r.title)}</span>
           <span class="m">${pills(r.counts)} ${r.impact ? impactPill(r.impact, "imp") : ""}${r.likelihood ? likelihoodPill(r.likelihood, "lik") : ""} <span>${esc(r.state.toLowerCase())}</span> <span title="${esc(r.classifier)}">· ${esc(r.classifier.split("/").pop())}</span></span>
         </a>`).join("")}</div>
     </div>`;

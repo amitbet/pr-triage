@@ -7,7 +7,8 @@ let onDone = async () => {};
 async function triage() {
   const url = $("#url").value.trim();
   if (!url) return;
-  const body = { url, force: $("#force").checked, ...jobSettings() };
+  const isPath = !/^https?:\/\//.test(url) && !/^[^\s]+\/[^\s]+#\d+$/.test(url);
+  const body = { [isPath ? "path" : "url"]: url, force: $("#force").checked, ...jobSettings() };
   $("#go").disabled = true;
   $("#main").innerHTML = `<div class="progress">starting…</div>`;
   try {
@@ -17,9 +18,10 @@ async function triage() {
       if (j.status === "done") { await onDone(j.key); break; }
       if (j.status === "error") throw new Error(j.error);
       const pct = j.total ? Math.round((100 * j.done) / j.total) : 0;
-      const repo = j.url.split("/")[4] || "this repo";
+      const repo = isPath ? "this repo" : j.url.split("/")[4] || "this repo";
       const what = {
         fetch: "fetching PR and diffing",
+        inspect: "reading the local changes",
         clone: `${repo} is not in the code map: cloning it into the workspace…`,
         codemap: `${repo} is not in the code map: building it before triage (a few minutes the first time)…`,
       }[j.stage] || `${j.stage} ${j.done}/${j.total} units`;

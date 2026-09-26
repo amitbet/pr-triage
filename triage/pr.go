@@ -105,18 +105,23 @@ func ParseRepo(s string) (host, owner, repo string, err error) {
 
 type PRInfo struct {
 	PRRef
-	URL      string `json:"url"`
-	Title    string `json:"title"`
-	Author   string `json:"author"`
-	State    string `json:"state"`
-	HeadOid  string `json:"head_oid"`
-	BaseOid  string `json:"base_oid"` // merge base actually diffed against
-	BaseRef  string `json:"base_ref"`
-	HeadRef  string `json:"head_ref"`
-	Body     string `json:"body,omitempty"`
-	Adds     int    `json:"additions"`
-	Dels     int    `json:"deletions"`
-	MergedAt string `json:"merged_at,omitempty"`
+	LocalPath    string `json:"local_path,omitempty"`
+	Ahead        int    `json:"ahead,omitempty"`
+	Behind       int    `json:"behind,omitempty"`
+	Uncommitted  bool   `json:"uncommitted,omitempty"`
+	SnapshotHash string `json:"snapshot_hash,omitempty"`
+	URL          string `json:"url"`
+	Title        string `json:"title"`
+	Author       string `json:"author"`
+	State        string `json:"state"`
+	HeadOid      string `json:"head_oid"`
+	BaseOid      string `json:"base_oid"` // merge base actually diffed against
+	BaseRef      string `json:"base_ref"`
+	HeadRef      string `json:"head_ref"`
+	Body         string `json:"body,omitempty"`
+	Adds         int    `json:"additions"`
+	Dels         int    `json:"deletions"`
+	MergedAt     string `json:"merged_at,omitempty"`
 }
 
 // PRFetcher keeps blobless clones under Dir and diffs PRs locally, so
