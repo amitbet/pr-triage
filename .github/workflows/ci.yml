@@ -106,9 +106,14 @@ jobs:
             test_tags: desktop
             output: dist/desktop/pr-triage-windows-amd64.exe
     runs-on: ${{ matrix.os }}
+    # Each build uploads its package to the release as soon as it is ready.
+    permissions:
+      contents: write
+      actions: read
     env:
       CGO_ENABLED: 1
       DESKTOP_VERSION: ${{ needs.version.outputs.tag || 'dev' }}
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -145,10 +150,32 @@ jobs:
           name: pr-triage-${{ matrix.artifact }}
           path: ${{ matrix.output }}
           if-no-files-found: error
+      # The release job creates the release after the CLI tests pass. Wait for
+      # it, and stop waiting if that job ends without creating one.
+      - name: Upload to release
+        if: env.RELEASE_TAG != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          jobs_url="repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs"
+          until gh release view "$RELEASE_TAG" >/dev/null 2>&1; do
+            conclusion=$(gh api "$jobs_url" --jq '.jobs[] | select(.name == "Release") | .conclusion // ""')
+            if [[ -n "$conclusion" && "$conclusion" != "success" ]]; then
+              echo "release job ended with $conclusion" >&2
+              exit 1
+            fi
+            if (( SECONDS > 1800 )); then
+              echo "timed out waiting for release $RELEASE_TAG" >&2
+              exit 1
+            fi
+            sleep 15
+          done
+          gh release upload "$RELEASE_TAG" '${{ matrix.output }}' --clobber
   release:
     name: Release
-    needs: [version, snapshot, desktop]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.version.result == 'success' && needs.snapshot.result == 'success' && needs.desktop.result == 'success'
+    needs: [version, snapshot]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.version.result == 'success' && needs.snapshot.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -161,21 +188,11 @@ jobs:
         with:
           name: cli-release
           path: ${{ runner.temp }}/cli-release
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: pr-triage-*
-          path: ${{ runner.temp }}/desktop-release
-          merge-multiple: true
       - name: Verify release packages
         run: |
           test -s "$RUNNER_TEMP/cli-release/checksums.txt"
           test -s "$RUNNER_TEMP/cli-release/homebrew/Casks/pr-triage.rb"
-          test -s "$RUNNER_TEMP/desktop-release/PR-Triage-macos-arm64.zip"
-          test -s "$RUNNER_TEMP/desktop-release/pr-triage-linux-amd64.tar.gz"
-          test -s "$RUNNER_TEMP/desktop-release/pr-triage-windows-amd64.exe"
-          (cd "$RUNNER_TEMP/cli-release" && sha256sum -c checksums.txt)
-          cd "$RUNNER_TEMP/desktop-release"
-          sha256sum PR-Triage-macos-arm64.zip pr-triage-linux-amd64.tar.gz pr-triage-windows-amd64.exe > desktop-checksums.txt
+          cd "$RUNNER_TEMP/cli-release" && sha256sum -c checksums.txt
       - name: Bump version
         env:
           RELEASE_TAG: ${{ needs.version.outputs.tag }}
@@ -213,14 +230,10 @@ jobs:
             "$RUNNER_TEMP"/cli-release/*.tar.gz \
             "$RUNNER_TEMP"/cli-release/*.zip \
             "$RUNNER_TEMP/cli-release/checksums.txt" \
-            "$RUNNER_TEMP/desktop-release/PR-Triage-macos-arm64.zip" \
-            "$RUNNER_TEMP/desktop-release/pr-triage-linux-amd64.tar.gz" \
-            "$RUNNER_TEMP/desktop-release/pr-triage-windows-amd64.exe" \
-            "$RUNNER_TEMP/desktop-release/desktop-checksums.txt" \
             --clobber
       # Casks/** changes do not trigger CI, so this commit does not start a
       # new release.
-      - name: Update Homebrew casks
+      - name: Update CLI Homebrew cask
         if: ${{ !contains(needs.version.outputs.tag, '-') }}
         env:
           RELEASE_TAG: ${{ needs.version.outputs.tag }}
@@ -229,11 +242,51 @@ jobs:
             git fetch origin main
             git checkout -B main origin/main
             cp "$RUNNER_TEMP/cli-release/homebrew/Casks/pr-triage.rb" Casks/pr-triage.rb
-            bash scripts/desktop-cask.sh "$RELEASE_TAG" "$RUNNER_TEMP/desktop-release/PR-Triage-macos-arm64.zip" > Casks/pr-triage-desktop.rb
-            git add Casks/pr-triage.rb Casks/pr-triage-desktop.rb
+            git add Casks/pr-triage.rb
             if git diff --cached --quiet; then exit 0; fi
             git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-              commit -m "Update Homebrew casks for pr-triage $RELEASE_TAG"
+              commit -m "Update Homebrew cask for pr-triage $RELEASE_TAG"
+            git push origin main && exit 0
+            sleep 5
+          done
+          exit 1
+  desktop-release:
+    name: Desktop checksums and cask
+    needs: [version, release, desktop]
+    if: always() && !cancelled() && needs.release.result == 'success' && needs.desktop.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pr-triage-*
+          path: ${{ runner.temp }}/desktop-release
+          merge-multiple: true
+      - name: Publish desktop checksums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          cd "$RUNNER_TEMP/desktop-release"
+          sha256sum PR-Triage-macos-arm64.zip pr-triage-linux-amd64.tar.gz pr-triage-windows-amd64.exe > desktop-checksums.txt
+          gh release upload "$RELEASE_TAG" desktop-checksums.txt --clobber
+      # Casks/** changes do not trigger CI, so this commit does not start a
+      # new release.
+      - name: Update desktop Homebrew cask
+        if: ${{ !contains(needs.version.outputs.tag, '-') }}
+        env:
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git checkout -B main origin/main
+            bash scripts/desktop-cask.sh "$RELEASE_TAG" "$RUNNER_TEMP/desktop-release/PR-Triage-macos-arm64.zip" > Casks/pr-triage-desktop.rb
+            git add Casks/pr-triage-desktop.rb
+            if git diff --cached --quiet; then exit 0; fi
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit -m "Update Homebrew cask for pr-triage-desktop $RELEASE_TAG"
             git push origin main && exit 0
             sleep 5
           done

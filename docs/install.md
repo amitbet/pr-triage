@@ -108,12 +108,14 @@ that commit, and uploads the binaries. The first release is `v0.1.0`. The next
 pushes become `v0.1.1`, `v0.1.2`, and so on. If the commit already has a stable
 version tag, CI publishes that tag instead of incrementing the patch number.
 
-`.github/workflows/ci.yml` runs vet, tests, and the smoke check, builds the
-desktop apps for macOS arm64, Linux amd64, and Windows amd64, then publishes
-those packages with the CLI archives and checksums and updates the cask.
-`checksums.txt` covers the GoReleaser CLI archives. The desktop packages are
-separate release assets covered by `desktop-checksums.txt`. Pull requests run
-the same tests and desktop builds without publishing.
+`.github/workflows/ci.yml` runs vet, tests, and the smoke check, then creates
+the release with the CLI archives and checksums and updates the CLI cask. It
+does not wait for the desktop apps. Each desktop build (macOS arm64, Linux
+amd64, Windows amd64) adds its package to the release when it finishes. After
+all three are in, CI uploads `desktop-checksums.txt` and updates the desktop
+cask. `checksums.txt` covers the GoReleaser CLI archives. If a desktop build
+fails, the release stays published without that package. Pull requests run the
+same tests and desktop builds without publishing.
 
 Pushing a version tag yourself, such as `v1.0.0`, still runs
 `.github/workflows/release.yml`. Use that for a minor or major bump. Tags
