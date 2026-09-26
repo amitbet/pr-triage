@@ -15,9 +15,10 @@ On Windows, run `bash scripts/build-desktop.sh` from an MSYS2 UCRT64 shell if
 
 The build is native because cgo compiles each tree-sitter grammar for the host
 OS and architecture. `.github/workflows/ci.yml` runs tests and builds on
-all three hosts, then uploads the results as workflow artifacts. On a version
-tag, `.github/workflows/release.yml` builds all three desktop packages and adds
-them to the GitHub release alongside the CLI archives. The release assets are
+all three hosts, then uploads the results as workflow artifacts. A push to
+`main` also tags the next patch version and adds those desktop packages to the
+GitHub release alongside the CLI archives. Pushing a version tag directly still
+publishes through `.github/workflows/release.yml`. The release assets are
 `PR-Triage-macos-arm64.zip`, `pr-triage-linux-amd64.tar.gz`, and
 `pr-triage-windows-amd64.exe`. The macOS app is unsigned.
 

@@ -1,4 +1,7 @@
 name: Release
+# Pushes to main are versioned and published by CI. This workflow publishes a
+# tag pushed from outside Actions, such as a minor or major bump. A tag CI
+# creates with GITHUB_TOKEN does not start this workflow.
 on:
   push:
     tags: ['v*']
@@ -94,9 +97,20 @@ jobs:
           test -s "$RUNNER_TEMP/desktop-release/pr-triage-windows-amd64.exe"
           cd "$RUNNER_TEMP/desktop-release"
           sha256sum PR-Triage-macos-arm64.zip pr-triage-linux-amd64.tar.gz pr-triage-windows-amd64.exe > desktop-checksums.txt
+      - name: Check for an existing release
+        id: existing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
       # Publishes the archives and commits Casks/pr-triage.rb to main, which
       # makes this repository its own Homebrew tap.
       - uses: goreleaser/goreleaser-action@v6
+        if: steps.existing.outputs.exists != 'true'
         with:
           version: v2.18.2
           args: release --clean

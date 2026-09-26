@@ -84,21 +84,29 @@ automatic builds. Start from `codemap/indexer/default.yaml`.
 
 ## Maintainer setup
 
-The Homebrew tap is this repository: the release workflow commits
-`Casks/pr-triage.rb` to the default branch, so `brew tap amitbet/pr-triage
+The Homebrew tap is this repository. CI commits `Casks/pr-triage.rb` to the
+default branch when it publishes a release, so `brew tap amitbet/pr-triage
 https://github.com/amitbet/pr-triage` picks it up. No separate tap repository or
-extra token is needed; the workflow's `GITHUB_TOKEN` uploads the release assets
+extra token is needed. The workflow `GITHUB_TOKEN` uploads the release assets
 and pushes the cask. If the default branch is protected, allow GitHub Actions to
 push to it.
 
-To release, push a version tag such as `v0.1.0`. `.github/workflows/release.yml`
-runs the tests, builds the desktop apps on macOS arm64, Linux amd64 and Windows
-amd64, publishes the desktop packages alongside the CLI archives and checksums,
-and updates the cask. `checksums.txt` covers the GoReleaser CLI archives; the
-desktop packages are separate release assets covered by `desktop-checksums.txt`.
-Prerelease tags (`v0.2.0-rc.1`) publish release assets without updating the cask.
-`.github/workflows/ci.yml` runs vet, tests and the smoke check on every push and
-pull request.
+A push to `main` publishes a release. CI resolves the next patch version, tags
+that commit, and uploads the binaries. The first release is `v0.1.0`. The next
+pushes become `v0.1.1`, `v0.1.2`, and so on. If the commit already has a stable
+version tag, CI publishes that tag instead of incrementing the patch number.
+
+`.github/workflows/ci.yml` runs vet, tests, and the smoke check, builds the
+desktop apps for macOS arm64, Linux amd64, and Windows amd64, then publishes
+those packages with the CLI archives and checksums and updates the cask.
+`checksums.txt` covers the GoReleaser CLI archives. The desktop packages are
+separate release assets covered by `desktop-checksums.txt`. Pull requests run
+the same tests and desktop builds without publishing.
+
+Pushing a version tag yourself, such as `v1.0.0`, still runs
+`.github/workflows/release.yml`. Use that for a minor or major bump. Tags
+created by CI do not start that workflow again. A prerelease tag such as
+`v0.2.0-rc.1` publishes release assets and leaves the cask unchanged.
 
 To validate locally:
 
@@ -111,4 +119,4 @@ python3 scripts/smoke-release.py dist/pr-triage_darwin_arm64_v8.0/pr-triage
 Use the actual native executable path produced under `dist/` for the smoke check.
 Snapshot mode builds archives and the cask locally without publishing. Releases
 include version, commit and build date, available with `pr-triage version`.
-GoReleaser is pinned to v2.18.2 in the release workflow.
+GoReleaser is pinned to v2.18.2 in CI and in the tag workflow.
