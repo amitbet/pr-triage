@@ -20,8 +20,8 @@ export function mountActivity(el, jobId) {
   el.innerHTML = `<div class="act">
     <div class="act-head">
       <b>Activity</b><span class="act-count"></span><span class="spacer"></span>
-      <label class="act-opt"><input type="checkbox" class="act-follow" checked> follow running</label>
-      <label class="act-opt"><input type="checkbox" class="act-hide"> hide finished</label>
+      <label class="act-opt"><input type="checkbox" class="act-follow"> follow running</label>
+      <label class="act-opt"><input type="checkbox" class="act-show" checked> show finished</label>
       <button type="button" class="linkbtn act-open">expand all</button>
       <button type="button" class="linkbtn act-close">collapse all</button>
     </div>
@@ -29,9 +29,9 @@ export function mountActivity(el, jobId) {
   </div>`;
   const list = el.querySelector(".act-list");
   const follow = el.querySelector(".act-follow");
-  const hide = el.querySelector(".act-hide");
+  const show = el.querySelector(".act-show");
   const rows = new Map(); // thread id -> { el, seen, touched }
-  hide.onchange = () => list.classList.toggle("hide-done", hide.checked);
+  show.onchange = () => list.classList.toggle("hide-done", !show.checked);
   el.querySelector(".act-open").onclick = () => rows.forEach((r) => { r.el.open = true; r.touched = true; });
   el.querySelector(".act-close").onclick = () => rows.forEach((r) => { r.el.open = false; r.touched = true; });
 
@@ -47,7 +47,6 @@ export function mountActivity(el, jobId) {
     r = { el: d, seen: 0, touched: false };
     // A thread the user opened or closed keeps that state.
     d.querySelector("summary").addEventListener("click", () => { r.touched = true; });
-    d.open = t.kind === "job";
     rows.set(t.id, r);
     list.appendChild(d);
     return r;
@@ -58,7 +57,7 @@ export function mountActivity(el, jobId) {
     const d = r.el;
     d.dataset.status = t.status;
     d.querySelector(".act-time").textContent = `${t.lines.length ? t.lines.length + (t.dropped || 0) + " lines · " : ""}${took(t)}`;
-    if (!r.touched && follow.checked && t.kind !== "job") d.open = t.status === "running";
+    if (!r.touched && follow.checked) d.open = t.status === "running";
     const total = (t.dropped || 0) + t.lines.length;
     const fresh = t.lines.slice(Math.max(0, t.lines.length - (total - r.seen)));
     if (!fresh.length) return;

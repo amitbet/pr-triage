@@ -281,7 +281,7 @@ func (tp TierPolicy) reviewable(u *Unit) bool {
 }
 
 // afterReview applies what the reviewer found. prev is the bucket the
-// review saw; a reviewer that disagreed with "skim" raised it.
+// review saw; a failed review call raised it.
 func (tp TierPolicy) afterReview(u *Unit, prev Bucket) {
 	s := u.Score
 	u.Attention = attentionScore(u.Issues)
@@ -289,7 +289,7 @@ func (tp TierPolicy) afterReview(u *Unit, prev Bucket) {
 	why := ""
 	raised := u.Decision.Bucket != prev && len(u.Decision.Escalated) > 0
 	switch {
-	case raised: // the reviewer disagreed, or the call failed
+	case raised: // the review call failed
 		why = u.Decision.Escalated[len(u.Decision.Escalated)-1]
 	case !u.Reviewed:
 		why = "review failed or gave no answer"

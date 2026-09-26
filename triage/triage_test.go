@@ -218,7 +218,7 @@ func toolResp(name string, args map[string]any) *llm.LLMResponse {
 	return &llm.LLMResponse{ToolCalls: []llm.ToolCall{{Name: name, Arguments: args}}}
 }
 
-func TestPipelineEscalatesOnFailureAndSummarizerVeto(t *testing.T) {
+func TestPipelineEscalatesOnFailureNotUnsupportedVeto(t *testing.T) {
 	files, _ := ParseDiff(sampleDiff)
 	classify := &fakeLLM{fn: func(req llm.LLMRequest) (*llm.LLMResponse, error) {
 		return toolResp("submit_triage", map[string]any{"bucket": "skim", "change_kind": "behavior", "confidence": 0.9, "reason": "retry count"}), nil
@@ -242,8 +242,9 @@ func TestPipelineEscalatesOnFailureAndSummarizerVeto(t *testing.T) {
 			retry = u
 		}
 	}
-	if retry.Decision.Bucket != BucketHuman || !strings.Contains(strings.Join(retry.Decision.Escalated, ""), "retry budget") {
-		t.Errorf("summarizer veto not applied: %+v", retry.Decision)
+	// safe=false without an issue is a thing to check, not an escalation.
+	if len(retry.Decision.Escalated) > 0 || !strings.Contains(strings.Join(retry.Focus, ""), "summarizer: retry budget") {
+		t.Errorf("unsupported veto should only add focus: %+v focus=%v", retry.Decision, retry.Focus)
 	}
 
 	p.Classifier = &LLMClassifier{LLM: &fakeLLM{fn: func(llm.LLMRequest) (*llm.LLMResponse, error) {

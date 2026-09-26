@@ -13,7 +13,7 @@ const summarizeSystem = `You write short review summaries for pull-request chang
 For the change unit, write:
 - headline: one line, at most 12 words, saying what changed (e.g. "Retry helper now caps attempts at 5"). No "This change...".
 - summary: 1-3 sentences on what changed and why it is safe to skip a line-by-line review.
-You are also a second opinion. If while reading you find anything that can alter runtime behavior in a way a reviewer must judge (logic, error handling, concurrency, API, security, data), set safe=false and say what.
+You are also a second opinion. Changing behavior is what most changes are for; that alone is not a reason to set safe=false. Set safe=false only when the triage missed a concrete risk: a defect you report in issues, or a change to a contract other code relies on (API, wire or JSON shape, DB schema, persisted format) that the diff does not show is handled. Say what in escalate_reason.
 ` + issuesInstructions
 
 var summaryTool = llm.ToolDefinition{
@@ -139,8 +139,11 @@ func (s *Summarizer) system(base string) string {
 }
 
 // Summarize fills u.Summary. For skim-bucket units it is also a second
-// opinion: it escalates to human when the model disagrees with the triage
-// or the call fails. Human units get review notes instead.
+// opinion: it escalates to human when the call fails. A medium or worse
+// issue that survives the critic pins the unit in afterReview; safe=false
+// without one only adds a thing to check, so a model that calls every
+// behavior change unsafe cannot override the review budget.
+// Human units get review notes instead.
 func (s *Summarizer) Summarize(ctx context.Context, u *Unit) {
 	if u.Decision.Bucket == BucketHuman {
 		s.reviewNotes(ctx, u)
@@ -159,9 +162,10 @@ func (s *Summarizer) Summarize(ctx context.Context, u *Unit) {
 	u.Headline, _ = args["headline"].(string)
 	s.setIssues(ctx, u, args)
 	safe, ok := args["safe"].(bool)
-	if !ok || !safe {
-		why, _ := args["escalate_reason"].(string)
-		u.Decision.escalate(BucketHuman, "summarizer: "+strings.TrimSpace(why))
+	why, _ := args["escalate_reason"].(string)
+	why = strings.TrimSpace(why)
+	if (!ok || !safe) && why != "" && severityWeight[worstIssue(u.Issues).Severity] < severityWeight["medium"] {
+		u.Focus = append(u.Focus, "summarizer: "+why)
 	}
 }
 
