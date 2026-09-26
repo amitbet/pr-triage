@@ -30,7 +30,7 @@ release:
   prerelease: auto
 
 changelog:
-  use: github
+  use: git
   filters:
     exclude:
       - '^Update Homebrew cask'

@@ -33,26 +33,58 @@ jobs:
           echo "Next release is $tag" >> "$GITHUB_STEP_SUMMARY"
   snapshot:
     name: CLI snapshot and serve check
+    needs: version
+    if: always() && !cancelled() && (needs.version.result == 'success' || needs.version.result == 'skipped')
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true
       - name: Test version bump
         run: bash scripts/next-version-test.sh
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          # A separate cache key from the desktop jobs. They finish first and
+          # would otherwise save a cache without the cross-compiled packages.
+          cache-dependency-path: |
+            go.sum
+            .goreleaser.yaml
       - name: Vet and test pure Go path
         run: go vet ./... && go test ./...
       - name: Smoke-test serve
         run: |
           go build -o "$RUNNER_TEMP/pr-triage" .
           python3 scripts/smoke-release.py "$RUNNER_TEMP/pr-triage"
+      # On main, build the real release so the release job only publishes it.
+      # The tag stays local until the release job pushes it.
+      - name: Tag the release locally
+        if: env.RELEASE_TAG != ''
+        run: |
+          if ! git rev-parse -q --verify "refs/tags/$RELEASE_TAG" >/dev/null; then
+            git tag "$RELEASE_TAG"
+          fi
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: v2.18.2
-          args: release --snapshot --clean --skip=publish
+          args: ${{ env.RELEASE_TAG != '' && 'release --clean --skip=publish' || 'release --snapshot --clean --skip=publish' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ env.RELEASE_TAG }}
+      - uses: actions/upload-artifact@v4
+        if: env.RELEASE_TAG != ''
+        with:
+          name: cli-release
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+            dist/CHANGELOG.md
+            dist/homebrew/Casks/pr-triage.rb
+          if-no-files-found: error
   desktop:
     name: Desktop build (${{ matrix.artifact }})
     needs: version
@@ -125,19 +157,23 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-      - uses: actions/setup-go@v5
+      - uses: actions/download-artifact@v4
         with:
-          go-version-file: go.mod
+          name: cli-release
+          path: ${{ runner.temp }}/cli-release
       - uses: actions/download-artifact@v4
         with:
           pattern: pr-triage-*
           path: ${{ runner.temp }}/desktop-release
           merge-multiple: true
-      - name: Verify desktop packages
+      - name: Verify release packages
         run: |
+          test -s "$RUNNER_TEMP/cli-release/checksums.txt"
+          test -s "$RUNNER_TEMP/cli-release/homebrew/Casks/pr-triage.rb"
           test -s "$RUNNER_TEMP/desktop-release/PR-Triage-macos-arm64.zip"
           test -s "$RUNNER_TEMP/desktop-release/pr-triage-linux-amd64.tar.gz"
           test -s "$RUNNER_TEMP/desktop-release/pr-triage-windows-amd64.exe"
+          (cd "$RUNNER_TEMP/cli-release" && sha256sum -c checksums.txt)
           cd "$RUNNER_TEMP/desktop-release"
           sha256sum PR-Triage-macos-arm64.zip pr-triage-linux-amd64.tar.gz pr-triage-windows-amd64.exe > desktop-checksums.txt
       - name: Bump version
@@ -162,31 +198,21 @@ jobs:
               tag -a "$tag" -m "Release $tag"
             git push origin "refs/tags/${tag}"
           fi
-      - name: Check for an existing release
-        id: existing
+      - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ needs.version.outputs.tag }}
         run: |
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            prerelease=()
+            if [[ "$RELEASE_TAG" == *-* ]]; then prerelease=(--prerelease); fi
+            gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" \
+              --notes-file "$RUNNER_TEMP/cli-release/CHANGELOG.md" "${prerelease[@]}"
           fi
-      - uses: goreleaser/goreleaser-action@v6
-        if: steps.existing.outputs.exists != 'true'
-        with:
-          version: v2.18.2
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GORELEASER_CURRENT_TAG: ${{ needs.version.outputs.tag }}
-      - name: Upload desktop packages to release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ needs.version.outputs.tag }}
-        run: |
           gh release upload "$RELEASE_TAG" \
+            "$RUNNER_TEMP"/cli-release/*.tar.gz \
+            "$RUNNER_TEMP"/cli-release/*.zip \
+            "$RUNNER_TEMP/cli-release/checksums.txt" \
             "$RUNNER_TEMP/desktop-release/PR-Triage-macos-arm64.zip" \
             "$RUNNER_TEMP/desktop-release/pr-triage-linux-amd64.tar.gz" \
             "$RUNNER_TEMP/desktop-release/pr-triage-windows-amd64.exe" \
@@ -194,7 +220,7 @@ jobs:
             --clobber
       # Casks/** changes do not trigger CI, so this commit does not start a
       # new release.
-      - name: Update desktop Homebrew cask
+      - name: Update Homebrew casks
         if: ${{ !contains(needs.version.outputs.tag, '-') }}
         env:
           RELEASE_TAG: ${{ needs.version.outputs.tag }}
@@ -202,11 +228,12 @@ jobs:
           for attempt in 1 2 3; do
             git fetch origin main
             git checkout -B main origin/main
+            cp "$RUNNER_TEMP/cli-release/homebrew/Casks/pr-triage.rb" Casks/pr-triage.rb
             bash scripts/desktop-cask.sh "$RELEASE_TAG" "$RUNNER_TEMP/desktop-release/PR-Triage-macos-arm64.zip" > Casks/pr-triage-desktop.rb
-            git add Casks/pr-triage-desktop.rb
+            git add Casks/pr-triage.rb Casks/pr-triage-desktop.rb
             if git diff --cached --quiet; then exit 0; fi
             git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-              commit -m "Update Homebrew cask for pr-triage-desktop $RELEASE_TAG"
+              commit -m "Update Homebrew casks for pr-triage $RELEASE_TAG"
             git push origin main && exit 0
             sleep 5
           done
