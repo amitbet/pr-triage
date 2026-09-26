@@ -5,6 +5,7 @@ import { S, render, allUnits } from "./state.js";
 import { SEV_CLASS, SEV_RANK, issueCapChip, issueScenarioHTML, risk, impactPill, likelihoodPill, attentionPill, decisionChips, scoresHTML, classificationHTML, movesHTML } from "./scores.js";
 import { unitRows, diffTable } from "./diff.js";
 import { issueDraftButton } from "./comments.js";
+import { issueFixButton } from "./fix.js";
 import { openPanel } from "./panel.js";
 
 // Steps are ordered by bucket, then score, then review attention, then risk
@@ -105,6 +106,7 @@ function issueCard(f, u, is, shown) {
   if (is.line && shown.has(is.line)) acts.push(`<button class="linkbtn" data-act="wz-line" data-line="${is.line}">show line ${is.line}</button>`);
   else if (is.line) acts.push(`<span class="chip">line ${is.line}</span>`);
   acts.push(issueDraftButton(f, u, i));
+  acts.push(issueFixButton(u, i, "linkbtn"));
   const a = acts.join("");
   return `<div class="wz-issue ${sev}"><div class="it"><span class="dz ${sev}">${esc(is.severity)}</span><span dir="auto">${esc(is.title)}${issueCapChip(is)}</span></div>
     ${is.detail ? `<div class="idt" dir="auto">${esc(is.detail)}</div>` : ""}${issueScenarioHTML(is, "idt")}${a ? `<div class="ia">${a}</div>` : ""}</div>`;
