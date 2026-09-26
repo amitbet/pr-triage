@@ -13,6 +13,7 @@ import (
 const desktopBuild = true
 
 func runDesktop(_ context.Context, o options) error {
+	inheritShellPath()
 	handler, err := newServeHandler(o)
 	if err != nil {
 		return err

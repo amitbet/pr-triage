@@ -52,8 +52,25 @@ With Homebrew (the tap lives in this repository):
 
 ```sh
 brew tap amitbet/pr-triage https://github.com/amitbet/pr-triage
-brew install --cask amitbet/pr-triage/pr-triage
 gh auth login
+```
+
+The desktop app (macOS, Apple silicon) opens the UI in its own window, so
+there's no server to start:
+
+```sh
+brew install --cask amitbet/pr-triage/pr-triage-desktop
+open -a "PR Triage"
+```
+
+It installs `PR Triage.app` into `/Applications`, pulls in `gh` and `git`, and
+removes quarantine, since the app is ad-hoc signed and not notarized.
+
+The CLI (macOS and Linux) runs the same UI in your browser, plus the triage,
+`prs` and `index` commands:
+
+```sh
+brew install --cask amitbet/pr-triage/pr-triage
 pr-triage serve
 ```
 
