@@ -98,8 +98,11 @@ func inspectLocal(ctx context.Context, path string) (*localSnapshot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s is not a Git checkout: %w", path, err)
 	}
-	dir := strings.TrimSpace(root)
-	if dir != path {
+	dir, err := filepath.EvalSymlinks(filepath.FromSlash(strings.TrimSpace(root)))
+	if err != nil {
+		return nil, err
+	}
+	if !strings.EqualFold(dir, path) {
 		return nil, fmt.Errorf("choose the repository root: %s", dir)
 	}
 	head, err := triage.Git(dir, "rev-parse", "HEAD")
