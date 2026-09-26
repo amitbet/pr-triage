@@ -5,8 +5,7 @@ import (
 	"strings"
 	"unicode"
 
-	ts "github.com/odvcencio/gotreesitter"
-	"github.com/odvcencio/gotreesitter/grammars/rust"
+	ts "github.com/amitbet/pr-triage/internal/sitter"
 )
 
 // The Rust parser reads items off the tree-sitter tree: functions, structs,
@@ -97,7 +96,7 @@ func (f *RsFile) Relink() {
 // IsFunc reports whether d is a function or method.
 func (d *RsDecl) IsFunc() bool { return d.Kind == "fn" || d.Kind == "method" }
 
-var rsGrammar = &grammar{load: rust.Language}
+var rsGrammar = &grammar{load: loadRust}
 
 var rsLex = &lexRules{
 	comments: set("line_comment", "block_comment"),

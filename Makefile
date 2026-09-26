@@ -20,10 +20,14 @@ KEYS = if [ -f "$(ENV_FILE)" ]; then \
 	eval "$$(grep -E '^(ANTHROPIC|OPENAI)_API_KEY=.+' "$(ENV_FILE)" | sed -E 's/^([A-Z_]+)=(.*)$$/: "$${\1:=\2}"; export \1/')"; \
 	fi;
 
-.PHONY: build test ui serve stop triage-prs clean-cache codemap codemap-rank codemap-lookup
+.PHONY: build desktop test ui serve stop triage-prs clean-cache codemap codemap-rank codemap-lookup
 
 build:
 	go build -o $(BIN) .
+
+# Native Wails app with the cgo tree-sitter parser. Build on the target OS.
+desktop:
+	scripts/build-desktop.sh
 
 test:
 	go vet ./... && go test ./...

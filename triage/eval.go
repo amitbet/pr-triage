@@ -137,7 +137,7 @@ type EvalResult struct {
 	Scored int
 	Exact  int
 	// Misses are human-labeled units that landed in "none": the metric
-	// that matters. Under are human → summary. Over are any escalation.
+	// that matters. Under are human → skim. Over are any escalation.
 	Misses, Under, Over []string
 	// Faithfulness is OpenJev's p(summary is accurate) per summarized unit.
 	Faithfulness map[string]float64
@@ -357,11 +357,11 @@ func RunEval(ctx context.Context, p *Pipeline, cases []EvalCase, judge *Judge) (
 				res.Exact++
 			case want == BucketHuman && got == BucketNone:
 				res.Misses = append(res.Misses, id)
-			case want == BucketHuman && got == BucketSummary:
+			case want == BucketHuman && got == BucketSkim:
 				res.Under = append(res.Under, id)
 			case got.rank() > want.rank():
 				res.Over = append(res.Over, id)
-			default: // summary → none
+			default: // skim → none
 				res.Under = append(res.Under, id)
 			}
 		}
@@ -380,18 +380,18 @@ func (r *EvalResult) Print(w io.Writer) {
 	fmt.Fprintf(w, "MISSES human→none:   %d (%.1f%%)\n", len(r.Misses), pct(len(r.Misses)))
 	fmt.Fprintf(w, "under-reviewed:      %d (%.1f%%)\n", len(r.Under), pct(len(r.Under)))
 	fmt.Fprintf(w, "over-escalated:      %d (%.1f%%)\n", len(r.Over), pct(len(r.Over)))
-	fmt.Fprintf(w, "\nconfusion (rows=label, cols=predicted)\n%-8s %6s %8s %6s\n", "", "human", "summary", "none")
-	for _, want := range []Bucket{BucketHuman, BucketSummary, BucketNone} {
+	fmt.Fprintf(w, "\nconfusion (rows=label, cols=predicted)\n%-8s %6s %8s %6s\n", "", "human", "skim", "none")
+	for _, want := range []Bucket{BucketHuman, BucketSkim, BucketNone} {
 		row := r.Confusion[want]
-		fmt.Fprintf(w, "%-8s %6d %8d %6d\n", want, row[BucketHuman], row[BucketSummary], row[BucketNone])
+		fmt.Fprintf(w, "%-8s %6d %8d %6d\n", want, row[BucketHuman], row[BucketSkim], row[BucketNone])
 	}
 	for _, id := range r.Misses {
 		fmt.Fprintf(w, "  miss: %s\n", id)
 	}
 	if len(r.Budgets) > 0 {
-		fmt.Fprintf(w, "\nreview budgets (all units; labeled human outside human; must_find defects outside human)\n%-10s %6s %8s %5s %6s %8s\n", "", "human", "summary", "none", "under", "defects")
+		fmt.Fprintf(w, "\nreview budgets (all units; labeled human outside human; must_find defects outside human)\n%-10s %6s %8s %5s %6s %8s\n", "", "human", "skim", "none", "under", "defects")
 		for _, b := range r.Budgets {
-			fmt.Fprintf(w, "%-10s %6d %8d %5d %6d %5d/%d\n", b.Name, b.Counts[BucketHuman], b.Counts[BucketSummary], b.Counts[BucketNone], b.Under, b.Hidden, b.Defects)
+			fmt.Fprintf(w, "%-10s %6d %8d %5d %6d %5d/%d\n", b.Name, b.Counts[BucketHuman], b.Counts[BucketSkim], b.Counts[BucketNone], b.Under, b.Hidden, b.Defects)
 		}
 	}
 	if r.MustFind > 0 || r.Issues > 0 {

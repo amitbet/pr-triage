@@ -3,8 +3,7 @@ package decls
 import (
 	"strings"
 
-	ts "github.com/odvcencio/gotreesitter"
-	"github.com/odvcencio/gotreesitter/grammars/c_sharp"
+	ts "github.com/amitbet/pr-triage/internal/sitter"
 )
 
 // The C# parser reads namespaces (block and file-scoped), usings, types
@@ -54,7 +53,7 @@ func (d *CSDecl) IsType() bool {
 	return d.Kind != "method" && d.Kind != "ctor" && d.Kind != "property"
 }
 
-var csGrammar = &grammar{load: c_sharp.Language}
+var csGrammar = &grammar{load: loadCSharp}
 
 var csLex = &lexRules{
 	comments: set("comment"),

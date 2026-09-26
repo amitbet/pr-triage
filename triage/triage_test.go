@@ -167,7 +167,13 @@ func TestPresort(t *testing.T) {
 }
 
 func TestDecodeDecisionAndThresholds(t *testing.T) {
-	th := Thresholds{None: 0.9, Summary: 0.7}
+	th := Thresholds{None: 0.9, Skim: 0.7}
+	if d, err := decodeDecision(map[string]any{"bucket": "skim", "confidence": 0.9, "reason": "docs"}); err != nil || d.Bucket != BucketSkim {
+		t.Errorf("skim bucket: %v, %v", d, err)
+	}
+	if _, err := decodeDecision(map[string]any{"bucket": "summary", "confidence": 0.9, "reason": "docs"}); err == nil {
+		t.Error("old summary bucket accepted")
+	}
 	if _, err := decodeDecision(map[string]any{"bucket": "maybe", "confidence": 0.9}); err == nil {
 		t.Error("invalid bucket accepted")
 	}
@@ -175,7 +181,7 @@ func TestDecodeDecisionAndThresholds(t *testing.T) {
 		t.Error("none without reason accepted")
 	}
 	d, _ := decodeDecision(map[string]any{"bucket": "none", "confidence": 0.99, "reason": "comment", "risk_signals": []any{"api"}})
-	if d.Bucket != BucketSummary {
+	if d.Bucket != BucketSkim {
 		t.Errorf("none+risk: %s", d.Bucket)
 	}
 	cases := []struct {
@@ -185,9 +191,9 @@ func TestDecodeDecisionAndThresholds(t *testing.T) {
 		want      Bucket
 	}{
 		{BucketNone, 0.95, false, BucketNone},
-		{BucketNone, 0.8, false, BucketSummary},
-		{BucketNone, 0.95, true, BucketSummary},
-		{BucketSummary, 0.6, false, BucketHuman},
+		{BucketNone, 0.8, false, BucketSkim},
+		{BucketNone, 0.95, true, BucketSkim},
+		{BucketSkim, 0.6, false, BucketHuman},
 		{BucketHuman, 0.1, false, BucketHuman},
 	}
 	for _, c := range cases {
@@ -215,7 +221,7 @@ func toolResp(name string, args map[string]any) *llm.LLMResponse {
 func TestPipelineEscalatesOnFailureAndSummarizerVeto(t *testing.T) {
 	files, _ := ParseDiff(sampleDiff)
 	classify := &fakeLLM{fn: func(req llm.LLMRequest) (*llm.LLMResponse, error) {
-		return toolResp("submit_triage", map[string]any{"bucket": "summary", "change_kind": "behavior", "confidence": 0.9, "reason": "retry count"}), nil
+		return toolResp("submit_triage", map[string]any{"bucket": "skim", "change_kind": "behavior", "confidence": 0.9, "reason": "retry count"}), nil
 	}}
 	veto := &fakeLLM{fn: func(req llm.LLMRequest) (*llm.LLMResponse, error) {
 		return toolResp("submit_summary", map[string]any{"summary": "raises retries", "safe": false, "escalate_reason": "retry budget"}), nil
@@ -248,6 +254,38 @@ func TestPipelineEscalatesOnFailureAndSummarizerVeto(t *testing.T) {
 		if u.File == "svc/retry.go" && u.Decision.Bucket != BucketHuman {
 			t.Errorf("error should escalate to human: %+v", u.Decision)
 		}
+	}
+}
+
+func TestPipelineReviewFilterOnlyReviewsSelectedUnits(t *testing.T) {
+	files, err := ParseDiff(fileDiff("a.go") + fileDiff("b.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	classify := &fakeLLM{fn: func(req llm.LLMRequest) (*llm.LLMResponse, error) {
+		return toolResp("submit_triage", map[string]any{"bucket": "human", "change_kind": "behavior", "confidence": 0.9, "reason": "changed"}), nil
+	}}
+	calls := 0
+	review := &fakeLLM{fn: func(req llm.LLMRequest) (*llm.LLMResponse, error) {
+		calls++
+		if !strings.Contains(req.Messages[1].Content, "File: a.go") {
+			t.Errorf("reviewed another file: %s", req.Messages[1].Content)
+		}
+		return toolResp("submit_review_notes", map[string]any{"summary": "checked", "issues": []any{}}), nil
+	}}
+	p := &Pipeline{
+		Presorter:    &Presorter{Policy: DefaultPolicy()},
+		Classifier:   &LLMClassifier{LLM: classify, Policy: DefaultPolicy()},
+		Summarizer:   &Summarizer{LLM: review, Policy: DefaultPolicy()},
+		ReviewFilter: func(u *Unit) bool { return u.File == "a.go" },
+	}
+	for _, u := range p.Run(context.Background(), &Source{Files: files}) {
+		if u.Reviewed != (u.File == "a.go") {
+			t.Errorf("%s reviewed=%v", u.File, u.Reviewed)
+		}
+	}
+	if calls != 1 {
+		t.Errorf("review calls = %d", calls)
 	}
 }
 

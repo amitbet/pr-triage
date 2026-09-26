@@ -97,7 +97,9 @@ var reviewNotesTool = llm.ToolDefinition{
 }
 
 type Summarizer struct {
-	LLM    llm.LLMTool
+	LLM llm.LLMTool
+	// Critic independently checks each issue. Nil uses LLM in a fresh call.
+	Critic llm.LLMTool
 	Policy Policy
 	// Tools lets providers that support it (the CLIs) read the repository at
 	// the PR head while reviewing. Pipeline.Run sets up the workspace.
@@ -136,7 +138,7 @@ func (s *Summarizer) system(base string) string {
 	return base + fmt.Sprintf(toolsInstructions, extra)
 }
 
-// Summarize fills u.Summary. For summary-bucket units it is also a second
+// Summarize fills u.Summary. For skim-bucket units it is also a second
 // opinion: it escalates to human when the model disagrees with the triage
 // or the call fails. Human units get review notes instead.
 func (s *Summarizer) Summarize(ctx context.Context, u *Unit) {
@@ -155,7 +157,7 @@ func (s *Summarizer) Summarize(ctx context.Context, u *Unit) {
 	}
 	u.Summary, _ = args["summary"].(string)
 	u.Headline, _ = args["headline"].(string)
-	s.setIssues(u, args)
+	s.setIssues(ctx, u, args)
 	safe, ok := args["safe"].(bool)
 	if !ok || !safe {
 		why, _ := args["escalate_reason"].(string)
@@ -183,16 +185,17 @@ func (s *Summarizer) reviewNotes(ctx context.Context, u *Unit) {
 			}
 		}
 	}
-	s.setIssues(u, args)
+	s.setIssues(ctx, u, args)
 }
 
 // setIssues decodes issues. Claims that rest on code the reviewer did not
 // see become things to check. A reply without an issues field was not a
 // review, so it cannot count as "nothing found".
-func (s *Summarizer) setIssues(u *Unit, args map[string]any) {
+func (s *Summarizer) setIssues(ctx context.Context, u *Unit, args map[string]any) {
 	v, ok := args["issues"]
 	var checks []string
 	u.Issues, checks = decodeIssues(v)
+	u.Issues = s.criticize(ctx, u, u.Issues)
 	u.Reviewed = ok
 	for _, c := range checks {
 		u.Focus = append(u.Focus, "unverified: "+c)

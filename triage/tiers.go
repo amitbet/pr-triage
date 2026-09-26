@@ -55,7 +55,7 @@ func attentionScore(issues []Issue) int {
 // the prior: √(impact × likelihood) weighted by the change kind. A review
 // that found nothing lowers it by the review budget's trust; issues set a
 // floor on it (their attention). The budget's cut-offs then pick human,
-// summary or none. Some units skip the score (pins) or have a minimum bucket
+// skim or none. Some units skip the score (pins) or have a minimum bucket
 // (floors); see pinAndFloor and afterReview.
 type TierPolicy struct {
 	// ReviewBudget names the default step in Budgets (most … least).
@@ -71,11 +71,11 @@ type TierPolicy struct {
 
 // Budget is one step of the review budget. Trust (0-1) is how much a clean
 // review lowers a unit's score (half as much with only low issues). A unit
-// scoring Human or more goes to human review, Summary or more to summary.
+// scoring Human or more goes to human review, Skim or more to skim.
 type Budget struct {
-	Trust   float64 `yaml:"trust" json:"trust"`
-	Human   int     `yaml:"human" json:"human"`
-	Summary int     `yaml:"summary" json:"summary"`
+	Trust float64 `yaml:"trust" json:"trust"`
+	Human int     `yaml:"human" json:"human"`
+	Skim  int     `yaml:"skim" json:"skim"`
 }
 
 // BudgetNames orders the steps from the most human review to the least.
@@ -88,11 +88,11 @@ func DefaultTierPolicy() TierPolicy {
 	return TierPolicy{
 		ReviewBudget: DefaultBudget,
 		Budgets: map[string]Budget{
-			"most":     {Trust: 0, Human: 30, Summary: 10},
-			"more":     {Trust: 0.15, Human: 35, Summary: 12},
-			"balanced": {Trust: 0.3, Human: 40, Summary: 15},
-			"less":     {Trust: 0.45, Human: 45, Summary: 18},
-			"least":    {Trust: 0.6, Human: 50, Summary: 20},
+			"most":     {Trust: 0, Human: 30, Skim: 10},
+			"more":     {Trust: 0.15, Human: 35, Skim: 12},
+			"balanced": {Trust: 0.3, Human: 40, Skim: 15},
+			"less":     {Trust: 0.45, Human: 45, Skim: 18},
+			"least":    {Trust: 0.6, Human: 50, Skim: 20},
 		},
 		KindWeights: map[string]float64{
 			"behavior": 1, "config": 1, "test": 0.8, "refactor": 0.6, "rename": 0.5,
@@ -179,12 +179,12 @@ func (s *Score) Place(b Budget, name string, attention int) (Bucket, int, string
 	if s.Pin != "" {
 		return s.Pin, t, fmt.Sprintf("%s: %s (any budget)", s.Pin, s.PinWhy)
 	}
-	bk, cut := BucketNone, fmt.Sprintf("< %d", b.Summary)
+	bk, cut := BucketNone, fmt.Sprintf("< %d", b.Skim)
 	switch {
 	case t >= b.Human:
 		bk, cut = BucketHuman, fmt.Sprintf("≥ %d", b.Human)
-	case t >= b.Summary:
-		bk, cut = BucketSummary, fmt.Sprintf("≥ %d", b.Summary)
+	case t >= b.Skim:
+		bk, cut = BucketSkim, fmt.Sprintf("≥ %d", b.Skim)
 	}
 	why := fmt.Sprintf("score %d = %s → %s (%s on %s)", t, s.arithmetic(b, attention), bk, cut, name)
 	if s.Floor != "" && s.Floor.rank() > bk.rank() {
@@ -252,13 +252,13 @@ func (tp TierPolicy) prior(u *Unit, maxChars int) {
 	}
 	switch {
 	case d.ChangeKind == "behavior":
-		s.Floor, s.FloorWhy = BucketSummary, "a behavior change is never skipped"
+		s.Floor, s.FloorWhy = BucketSkim, "a behavior change is never skipped"
 	case d.Bucket == BucketHuman && d.Source != "rule":
-		s.Floor, s.FloorWhy = BucketSummary, "the classifier asked for human review"
+		s.Floor, s.FloorWhy = BucketSkim, "the classifier asked for human review"
 	case len(d.RiskSignals) > 0:
-		s.Floor, s.FloorWhy = BucketSummary, "risk signals: "+strings.Join(d.RiskSignals, ", ")
+		s.Floor, s.FloorWhy = BucketSkim, "risk signals: "+strings.Join(d.RiskSignals, ", ")
 	case maxChars > 0 && len(u.Diff()) > maxChars:
-		s.Floor, s.FloorWhy = BucketSummary, "diff too long to show the classifier whole"
+		s.Floor, s.FloorWhy = BucketSkim, "diff too long to show the classifier whole"
 	}
 	u.Score = s
 	tp.place(u)
@@ -266,7 +266,7 @@ func (tp TierPolicy) prior(u *Unit, maxChars int) {
 
 // reviewable: units the LLM reviews, picked by the prior alone so the
 // budget never cuts review coverage. Only units that score under every
-// budget's summary cut-off, that the classifier called "none", and that
+// budget's skim cut-off, that the classifier called "none", and that
 // have no floor are left out, along with rule-skipped ones.
 func (tp TierPolicy) reviewable(u *Unit) bool {
 	s := u.Score
@@ -275,13 +275,13 @@ func (tp TierPolicy) reviewable(u *Unit) bool {
 	}
 	low := s.Prior
 	for _, b := range tp.Budgets {
-		low = min(low, b.Summary)
+		low = min(low, b.Skim)
 	}
 	return s.Classified != BucketNone || s.Floor != "" || s.Pin != "" || s.Prior >= low
 }
 
 // afterReview applies what the reviewer found. prev is the bucket the
-// review saw; a reviewer that disagreed with "summary" raised it.
+// review saw; a reviewer that disagreed with "skim" raised it.
 func (tp TierPolicy) afterReview(u *Unit, prev Bucket) {
 	s := u.Score
 	u.Attention = attentionScore(u.Issues)

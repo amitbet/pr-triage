@@ -2,7 +2,7 @@
 // re-run. place mirrors Score.Place in triage/tiers.go.
 import { BUCKETS } from "./util.js";
 
-const RANK = { none: 0, summary: 1, human: 2 };
+const RANK = { none: 0, skim: 1, human: 2 };
 const KEY = "pr-triage.review_budget";
 
 // budgets are the result's own steps (its repo policy), else the server's.
@@ -24,9 +24,9 @@ export function place(u, b) {
   const lowered = Math.round(s.prior * (1 - f));
   const total = Math.max(att, lowered);
   if (s.pin) return { bucket: s.pin, total, why: `${s.pin}: ${s.pin_why} (any budget)` };
-  let bucket = "none", cut = `< ${b.summary}`;
+  let bucket = "none", cut = `< ${b.skim}`;
   if (total >= b.human) [bucket, cut] = ["human", `≥ ${b.human}`];
-  else if (total >= b.summary) [bucket, cut] = ["summary", `≥ ${b.summary}`];
+  else if (total >= b.skim) [bucket, cut] = ["skim", `≥ ${b.skim}`];
   let x = String(s.base);
   if (s.kind !== 1) x += ` × kind ${g2(s.kind)}`;
   if (f > 0) x += ` × ${g2(1 - f)} (${s.clean < 1 ? "only low issues" : "clean review"})`;

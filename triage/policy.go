@@ -14,9 +14,9 @@ import (
 type Bucket string
 
 const (
-	BucketHuman   Bucket = "human"
-	BucketSummary Bucket = "summary"
-	BucketNone    Bucket = "none"
+	BucketHuman Bucket = "human"
+	BucketSkim  Bucket = "skim"
+	BucketNone  Bucket = "none"
 )
 
 // rank orders buckets by review effort; escalation only ever moves up.
@@ -24,7 +24,7 @@ func (b Bucket) rank() int {
 	switch b {
 	case BucketNone:
 		return 0
-	case BucketSummary:
+	case BucketSkim:
 		return 1
 	default:
 		return 2
@@ -32,13 +32,13 @@ func (b Bucket) rank() int {
 }
 
 func (b Bucket) Valid() bool {
-	return b == BucketHuman || b == BucketSummary || b == BucketNone
+	return b == BucketHuman || b == BucketSkim || b == BucketNone
 }
 
 // Up returns the next bucket up.
 func (b Bucket) Up() Bucket {
 	if b == BucketNone {
-		return BucketSummary
+		return BucketSkim
 	}
 	return BucketHuman
 }
@@ -51,10 +51,10 @@ func maxBucket(a, b Bucket) Bucket {
 }
 
 type Thresholds struct {
-	// Minimum confidence to accept a "none" / "summary" answer. Below it
+	// Minimum confidence to accept a "none" / "skim" answer. Below it
 	// the unit goes up one bucket.
-	None    float64 `yaml:"none"`
-	Summary float64 `yaml:"summary"`
+	None float64 `yaml:"none"`
+	Skim float64 `yaml:"skim"`
 }
 
 // Policy is loaded from .triage.yaml in the repo root and merged over
@@ -92,7 +92,7 @@ func DefaultPolicy() Policy {
 			"charts/", "**/values*.yaml", "**/crds/**", "*_types.go",
 			"go.mod",
 		},
-		Thresholds:         Thresholds{None: 0.9, Summary: 0.7},
+		Thresholds:         Thresholds{None: 0.9, Skim: 0.7},
 		MaxUnitChars:       24000,
 		ReviewContextChars: DefaultReviewContextChars,
 		Tiers:              DefaultTierPolicy(),
@@ -123,8 +123,8 @@ func ParsePolicy(b []byte) (Policy, error) {
 	if user.Thresholds.None > 0 {
 		p.Thresholds.None = user.Thresholds.None
 	}
-	if user.Thresholds.Summary > 0 {
-		p.Thresholds.Summary = user.Thresholds.Summary
+	if user.Thresholds.Skim > 0 {
+		p.Thresholds.Skim = user.Thresholds.Skim
 	}
 	if user.MaxUnitChars > 0 {
 		p.MaxUnitChars = user.MaxUnitChars
@@ -138,8 +138,8 @@ func ParsePolicy(b []byte) (Policy, error) {
 		Tiers struct {
 			ReviewBudget string `yaml:"review_budget"`
 			Budgets      map[string]struct {
-				Trust          *float64 `yaml:"trust"`
-				Human, Summary *int
+				Trust       *float64 `yaml:"trust"`
+				Human, Skim *int
 			} `yaml:"budgets"`
 			KindWeights    map[string]float64 `yaml:"kind_weights"`
 			CriticalImpact *int               `yaml:"critical_impact"`
@@ -160,11 +160,11 @@ func ParsePolicy(b []byte) (Policy, error) {
 		if ub.Human != nil {
 			bud.Human = *ub.Human
 		}
-		if ub.Summary != nil {
-			bud.Summary = *ub.Summary
+		if ub.Skim != nil {
+			bud.Skim = *ub.Skim
 		}
-		if bud.Trust < 0 || bud.Trust > 1 || bud.Summary > bud.Human {
-			return p, fmt.Errorf("tiers.budgets.%s: want 0 <= trust <= 1 and summary <= human, got %+v", name, bud)
+		if bud.Trust < 0 || bud.Trust > 1 || bud.Skim > bud.Human {
+			return p, fmt.Errorf("tiers.budgets.%s: want 0 <= trust <= 1 and skim <= human, got %+v", name, bud)
 		}
 		p.Tiers.Budgets[name] = bud
 	}

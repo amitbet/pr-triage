@@ -46,15 +46,15 @@ func applyThresholds(d Decision, th Thresholds, truncated bool) Decision {
 	switch d.Bucket {
 	case BucketNone:
 		if d.Confidence < th.None {
-			d.escalate(BucketSummary, fmt.Sprintf("none confidence %.2f < %.2f", d.Confidence, th.None))
+			d.escalate(BucketSkim, fmt.Sprintf("none confidence %.2f < %.2f", d.Confidence, th.None))
 		}
-	case BucketSummary:
-		if d.Confidence < th.Summary {
-			d.escalate(BucketHuman, fmt.Sprintf("summary confidence %.2f < %.2f", d.Confidence, th.Summary))
+	case BucketSkim:
+		if d.Confidence < th.Skim {
+			d.escalate(BucketHuman, fmt.Sprintf("skim confidence %.2f < %.2f", d.Confidence, th.Skim))
 		}
 	}
 	if truncated && d.Bucket == BucketNone {
-		d.escalate(BucketSummary, "diff truncated, model did not see the whole change")
+		d.escalate(BucketSkim, "diff truncated, model did not see the whole change")
 	}
 	return d
 }
@@ -96,19 +96,19 @@ const (
 
 // PromptVersion changes whenever the classify or summarize prompts do, so
 // cached results from older prompts aren't reused.
-const PromptVersion = "9"
+const PromptVersion = "11"
 
 const classifySystem = `You triage pull-request changes for a Go/Kubernetes codebase. For each change unit decide who needs to look at it.
 
 Buckets are defined by consequence, not size:
 - "human": the change can alter runtime behavior in a way a reviewer must judge. Logic, error handling, retries/timeouts, concurrency, public API or wire formats, security, persistence, resource limits, anything touching money or customer data. A one-line change to a retry count is "human".
-- "summary": behavior changes are low-risk and a short written summary is enough for the reviewer. Logging text, metrics names, test-only changes, internal refactors with an obvious equivalence, new code behind an unused path.
+- "skim": behavior changes are low-risk and a short written summary is enough for the reviewer. Logging text, metrics names, test-only changes, internal refactors with an obvious equivalence, new code behind an unused path.
 - "none": the change cannot alter behavior. You MUST name the concrete reason (comment-only, import reordering, pure rename of an unexported identifier with all uses updated, dead code removal with no references). "Looks trivial" is not a reason.
 
 You only see one unit. Never argue that something is unused or unreferenced: its uses may be in the other units of the PR, which are listed after the diff.
 Adding, removing or retagging struct fields is "human": it can change JSON/proto/wire output and what consumers receive.
 
-Test files (*_test.go) cannot affect production behavior. New tests are "summary". Deleted tests, removed assertions, or expectations changed to match new behavior are "human": they can hide a regression. Comment-only or formatting-only edits in tests are "none".
+Test files (*_test.go) cannot affect production behavior. New tests are "skim". Deleted tests, removed assertions, or expectations changed to match new behavior are "human": they can hide a regression. Comment-only or formatting-only edits in tests are "none".
 
 When unsure, pick the higher bucket. Report confidence as the probability that your bucket is correct.`
 
@@ -118,7 +118,7 @@ var triageTool = llm.ToolDefinition{
 	InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"bucket": map[string]any{"type": "string", "enum": []string{"human", "summary", "none"}},
+			"bucket": map[string]any{"type": "string", "enum": []string{"human", "skim", "none"}},
 			"change_kind": map[string]any{"type": "string", "enum": []string{
 				"behavior", "refactor", "rename", "config", "test", "docs", "generated", "format",
 			}},
@@ -190,7 +190,7 @@ func decodeDecision(args map[string]any) (Decision, error) {
 	}
 	// A model that lists risk signals but says "none" is contradicting itself.
 	if d.Bucket == BucketNone && len(d.RiskSignals) > 0 {
-		d.escalate(BucketSummary, "none with risk signals")
+		d.escalate(BucketSkim, "none with risk signals")
 	}
 	return d, nil
 }
@@ -207,7 +207,7 @@ type JevClassifier struct {
 }
 
 func DefaultJevAccept() map[Bucket]float64 {
-	return map[Bucket]float64{BucketHuman: 0.8, BucketSummary: 0.9, BucketNone: 0.97}
+	return map[Bucket]float64{BucketHuman: 0.8, BucketSkim: 0.9, BucketNone: 0.97}
 }
 
 var jevQuestions = map[string]llm.JevQuestion{
@@ -215,9 +215,9 @@ var jevQuestions = map[string]llm.JevQuestion{
 		Type:         "choice",
 		Instructions: "Who must review this code change? Pick by consequence, not size.",
 		Criteria: map[string]string{
-			"human":   "can change runtime behavior: logic, errors, retries, concurrency, API, security, data",
-			"summary": "low-risk change: logging, tests, docs, obvious refactor",
-			"none":    "cannot change behavior: comments, formatting, import order",
+			"human": "can change runtime behavior: logic, errors, retries, concurrency, API, security, data",
+			"skim":  "low-risk change: logging, tests, docs, obvious refactor",
+			"none":  "cannot change behavior: comments, formatting, import order",
 		},
 	},
 	"behavior": {

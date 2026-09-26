@@ -1,4 +1,4 @@
-// pr-triage sorts a branch's diff into: needs human review, read the
+// pr-triage sorts a branch's diff into: needs human review, skim the
 // generated summary, or no review needed.
 //
 //	pr-triage [flags]                       triage base...head in -C dir
@@ -130,6 +130,10 @@ func main() {
 		_ = fs.Parse(fs.Args()[1:])
 	}
 
+	if sub == "" && len(os.Args) == 1 && desktopBuild {
+		sub = "desktop"
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -139,6 +143,8 @@ func main() {
 		err = runEval(ctx, o)
 	case "serve":
 		err = runServe(ctx, o)
+	case "desktop":
+		err = runDesktop(ctx, o)
 	case "prs":
 		err = runPRs(ctx, o)
 	case "index":
@@ -420,7 +426,12 @@ func buildPipeline(o options, policy triage.Policy, gitattrs []string) (*triage.
 			return nil, err
 		}
 		llm.SetEffort(l, o.reviewEffort)
-		pipe.Summarizer = &triage.Summarizer{LLM: l, Policy: policy, Tools: o.reviewTools, Language: o.summaryLang}
+		critic, err := llm.New(o.summarizer, o.summaryModel)
+		if err != nil {
+			return nil, err
+		}
+		llm.SetEffort(critic, o.reviewEffort)
+		pipe.Summarizer = &triage.Summarizer{LLM: l, Critic: critic, Policy: policy, Tools: o.reviewTools, Language: o.summaryLang}
 	}
 	pipe.Warn = func(msg string) { fmt.Fprintln(os.Stderr, "pr-triage:", msg) }
 	return pipe, nil

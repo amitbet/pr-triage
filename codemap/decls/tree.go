@@ -1,7 +1,6 @@
 package decls
 
 import (
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -9,28 +8,16 @@ import (
 	"unicode/utf8"
 	"unsafe"
 
-	ts "github.com/odvcencio/gotreesitter"
+	ts "github.com/amitbet/pr-triage/internal/sitter"
 )
 
-// The Java, C#, Python and Rust parsers run a tree-sitter grammar
-// (gotreesitter, pure Go) and read declarations off the syntax tree. They
-// also flatten the tree's leaves into the same Tok stream the old lexers
-// produced, so the indexer's name resolution keeps working on tokens:
+// The declaration parsers run a tree-sitter grammar and read declarations
+// off the syntax tree. They flatten the leaves into the Tok stream that
+// the indexer's name resolution uses:
 // identifiers and keywords are 'i', every punctuation character is its own
 // 'p' token (&& is two), a string literal is one 's' token followed by the
 // tokens of any code in its interpolation holes, and comments are dropped.
 // Complexity is measured on the tree while it is still there.
-
-func init() {
-	// gotreesitter's process-heap ceiling calls runtime.ReadMemStats, which
-	// stops the world, every few hundred parser steps on files over 64 KiB.
-	// With a parser per core those stops serialize the indexer (3-5x slower).
-	// Each parse is still bounded by its own arena and scratch budgets. An
-	// explicit setting wins; the library reads it once, on first use.
-	if _, ok := os.LookupEnv("GOT_PARSE_MEMORY_HARD_CEILING_MB"); !ok {
-		os.Setenv("GOT_PARSE_MEMORY_HARD_CEILING_MB", "0")
-	}
-}
 
 // grammar is a lazily loaded language with a pool of parsers, safe for
 // concurrent use.

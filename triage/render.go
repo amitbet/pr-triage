@@ -16,7 +16,7 @@ func RenderJSON(w io.Writer, r *Report) error {
 func RenderMarkdown(w io.Writer, r *Report) {
 	c := r.Counts()
 	fmt.Fprintf(w, "## PR triage\n\n`%s...%s`: **%d** need human review, **%d** summarized, **%d** skipped.\n\n",
-		r.Base, r.Head, c[BucketHuman], c[BucketSummary], c[BucketNone])
+		r.Base, r.Head, c[BucketHuman], c[BucketSkim], c[BucketNone])
 	d, l, att := r.Scores()
 	var top []string
 	if d != nil {
@@ -61,8 +61,8 @@ func RenderMarkdown(w io.Writer, r *Report) {
 		}
 		fmt.Fprintln(w)
 	}
-	if us := section(BucketSummary); len(us) > 0 {
-		fmt.Fprintf(w, "### Read the summary\n\n")
+	if us := section(BucketSkim); len(us) > 0 {
+		fmt.Fprintf(w, "### Skim summaries\n\n")
 		for _, u := range us {
 			s := u.Summary
 			if s == "" {

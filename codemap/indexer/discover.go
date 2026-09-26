@@ -21,6 +21,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/amitbet/pr-triage/codemap/githist"
+	"github.com/amitbet/pr-triage/internal/sitter"
 )
 
 type RepoInfo struct {
@@ -158,7 +159,7 @@ func (ri *RepoInfo) fingerprint(allMods []Module) (commit string, dirty bool, fp
 }
 
 // depsHash ties cached graphs and parse caches to the versions of the
-// modules the indexer is built with (gotreesitter's grammars, x/tools), so a
+// modules the indexer is built with and the selected parser backend, so a
 // dependency upgrade re-extracts. Rebuilding the indexer does not: bump
 // extractorVersion when an extractor's or parser's output changes.
 var depsHash = sync.OnceValue(func() string {
@@ -167,6 +168,7 @@ var depsHash = sync.OnceValue(func() string {
 		return ""
 	}
 	h := sha256.New()
+	fmt.Fprintln(h, sitter.Backend)
 	for _, d := range bi.Deps {
 		if d.Replace != nil {
 			d = d.Replace

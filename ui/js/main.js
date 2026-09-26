@@ -17,6 +17,7 @@ import { initPanel, renderPanel, panelOpen, closePanel, updateReviewButton } fro
 import { initSidebar, loadList } from "./sidebar.js";
 import { initTriage, triageURL } from "./triage.js";
 import { initSettings, refreshSettings } from "./settings.js";
+import { initFix, actions as fixActions } from "./fix.js";
 import * as budget from "./budget.js";
 
 // TABS are the views of a triaged PR. mount runs after the tab's HTML is on
@@ -28,7 +29,7 @@ const TABS = [
 ];
 
 const actions = {
-  ...diffActions, ...commentActions, ...reviewActions, ...walkActions, ...treemapActions,
+  ...diffActions, ...commentActions, ...reviewActions, ...walkActions, ...treemapActions, ...fixActions,
   tab: (el) => { S.tab = el.dataset.tab; syncURL(); },
 };
 
@@ -46,6 +47,7 @@ function prHeadHTML(r) {
         ${likelihoodPill(r.likelihood, "max likelihood")}
         <span class="dz ${attLevel(r.attention)}" title="highest review attention">max attention ${r.attention}</span>
         ${r.codemap ? `<span title="code map build">map ${esc(r.codemap)}</span>` : ""}</div>` : ""}
+      ${r.local_fix_dir ? `<div class="meta">Local fix branch: <code>${esc(r.local_fix_branch || "detached")}</code> · worktree: <code>${esc(r.local_fix_dir)}</code> · ${r.fix_rounds} fix and review round${r.fix_rounds === 1 ? "" : "s"}</div>` : ""}
     </div>`;
 }
 
@@ -95,6 +97,7 @@ document.addEventListener("keydown", walkKeydown);
   initSidebar(showKey);
   initPanel(showDraft);
   initTriage(showKey);
+  initFix(showKey);
   initSettings(() => { if (S.result) { budget.apply(S.result, S.cfg); render(); } });
   await loadList();
   const q = new URLSearchParams(location.search);

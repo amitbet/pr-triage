@@ -50,9 +50,12 @@ type PRResult struct {
 	Attention  int                `json:"attention"`
 	CodeMap    string             `json:"codemap,omitempty"` // map build time
 	// ReviewBudget placed the units; Budgets lets the UI re-place them.
-	ReviewBudget string               `json:"review_budget,omitempty"`
-	Budgets      []triage.NamedBudget `json:"budgets,omitempty"`
-	Files        []resultFile         `json:"files"`
+	ReviewBudget   string               `json:"review_budget,omitempty"`
+	Budgets        []triage.NamedBudget `json:"budgets,omitempty"`
+	Files          []resultFile         `json:"files"`
+	LocalFixDir    string               `json:"local_fix_dir,omitempty"`
+	LocalFixBranch string               `json:"local_fix_branch,omitempty"`
+	FixRounds      int                  `json:"fix_rounds,omitempty"`
 }
 
 // tierPolicy is the budget table the result was triaged with (the
@@ -98,8 +101,9 @@ type triager struct {
 	fetcher *triage.PRFetcher
 	results string
 
-	mu   sync.Mutex
-	jobs map[string]*job
+	mu    sync.Mutex
+	jobs  map[string]*job
+	fixMu sync.Mutex
 }
 
 type job struct {
@@ -419,14 +423,14 @@ func writeErr(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
 
-func runServe(ctx context.Context, o options) error {
+func newServeHandler(o options) (http.Handler, error) {
 	t, err := newTriager(o)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	rv, err := newReviews(o, t.fetcher)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	static, _ := fs.Sub(uiFS, "ui")
 	mux := http.NewServeMux()
@@ -443,6 +447,8 @@ func runServe(ctx context.Context, o options) error {
 			"review_tools":   o.reviewTools,
 			"summary_lang":   o.summaryLang,
 			"review_budget":  orDefault(o.reviewBudget, triage.DefaultBudget),
+			"recursive_fix":  true,
+			"max_fix_rounds": 3,
 			"budgets":        triage.DefaultTierPolicy().OrderedBudgets(),
 			"codemap":        codeMapVersion(loadCodeMap(o.codemapDir)),
 			"codemap_repos":  codeMapRepos(loadCodeMap(o.codemapDir)),
@@ -494,6 +500,19 @@ func runServe(ctx context.Context, o options) error {
 		}
 		writeJSON(w, 202, j)
 	})
+	mux.HandleFunc("POST /api/fix", func(w http.ResponseWriter, r *http.Request) {
+		var req fixRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeErr(w, 400, err)
+			return
+		}
+		j, err := t.startFix(req)
+		if err != nil {
+			writeErr(w, 400, err)
+			return
+		}
+		writeJSON(w, 202, j)
+	})
 	mux.HandleFunc("GET /api/jobs/{id}", func(w http.ResponseWriter, r *http.Request) {
 		j, ok := t.job(r.PathValue("id"))
 		if !ok {
@@ -503,6 +522,14 @@ func runServe(ctx context.Context, o options) error {
 		writeJSON(w, 200, j)
 	})
 
+	return mux, nil
+}
+
+func runServe(ctx context.Context, o options) error {
+	mux, err := newServeHandler(o)
+	if err != nil {
+		return err
+	}
 	ln, err := net.Listen("tcp", o.addr)
 	if err != nil {
 		return fmt.Errorf("%w (another pr-triage serve running? `make stop` or `lsof -iTCP:%s`)", err, portOf(o.addr))
@@ -570,8 +597,8 @@ func runPRs(ctx context.Context, o options) error {
 			fmt.Printf("#%-5d ERROR %v\n", ref.Number, err)
 			continue
 		}
-		fmt.Printf("#%-5d human=%-3d summary=%-3d none=%-3d %5.1fs  %s\n", ref.Number,
-			r.Counts[triage.BucketHuman], r.Counts[triage.BucketSummary], r.Counts[triage.BucketNone],
+		fmt.Printf("#%-5d human=%-3d skim=%-3d none=%-3d %5.1fs  %s\n", ref.Number,
+			r.Counts[triage.BucketHuman], r.Counts[triage.BucketSkim], r.Counts[triage.BucketNone],
 			time.Since(start).Seconds(), r.PR.Title)
 	}
 	return nil

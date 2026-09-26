@@ -9,7 +9,7 @@ import { openPanel } from "./panel.js";
 
 // Steps are ordered by bucket, then score, then review attention, then risk
 // (impact times likelihood), then file order. "no review" units only on request.
-const BRANK = { human: 0, summary: 1, none: 2 };
+const BRANK = { human: 0, skim: 1, none: 2 };
 
 function steps() {
   return allUnits()

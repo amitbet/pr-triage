@@ -3,8 +3,7 @@ package decls
 import (
 	"strings"
 
-	ts "github.com/odvcencio/gotreesitter"
-	"github.com/odvcencio/gotreesitter/grammars/java"
+	ts "github.com/amitbet/pr-triage/internal/sitter"
 )
 
 // The Java parser reads types (nested ones too), methods, constructors and
@@ -45,7 +44,7 @@ type JavaFile struct {
 // IsType reports whether d declares a type rather than a method.
 func (d *JavaDecl) IsType() bool { return d.Kind != "method" && d.Kind != "ctor" }
 
-var javaGrammar = &grammar{load: java.Language}
+var javaGrammar = &grammar{load: loadJava}
 
 var javaLex = &lexRules{
 	comments: set("line_comment", "block_comment"),

@@ -25,7 +25,7 @@ const STOPS = {
 };
 const MODES = { impact: "impact", likelihood: "likelihood", both: "impact + likelihood" };
 const isDark = () => matchMedia("(prefers-color-scheme: dark)").matches;
-const BRANK = { none: 0, summary: 1, human: 2 };
+const BRANK = { none: 0, skim: 1, human: 2 };
 
 function rampRGB(kind, d) {
   const st = STOPS[kind][isDark() ? "dark" : "light"];
@@ -136,12 +136,12 @@ function findNode(repoNode, path) {
 }
 const nodePath = (n) => { const out = []; for (let x = n; x?._parent; x = x._parent) out.unshift(x.n); return out; };
 
-// Dot marks: filled = human review, ring = read summary, small = no review.
+// Dot marks: filled = human review, ring = skim, small = no review.
 // Ink with a surface ring so they read on every step of the red ramp.
 function dotMark(bucket, cx, cy) {
   const ink = isDark() ? "#f0f3f6" : "#1f2328", surf = isDark() ? "#0d1117" : "#ffffff";
   if (bucket === "human") return `<circle class="mark" cx="${cx}" cy="${cy}" r="6" fill="${ink}" stroke="${surf}" stroke-width="2"/>`;
-  if (bucket === "summary") return `<circle cx="${cx}" cy="${cy}" r="6.5" fill="none" stroke="${surf}" stroke-width="5"/><circle class="mark" cx="${cx}" cy="${cy}" r="5" fill="${surf}" stroke="${ink}" stroke-width="2.5"/>`;
+  if (bucket === "skim") return `<circle cx="${cx}" cy="${cy}" r="6.5" fill="none" stroke="${surf}" stroke-width="5"/><circle class="mark" cx="${cx}" cy="${cy}" r="5" fill="${surf}" stroke="${ink}" stroke-width="2.5"/>`;
   return `<circle class="mark" cx="${cx}" cy="${cy}" r="3.5" fill="${ink}" stroke="${surf}" stroke-width="2"/>`;
 }
 
@@ -224,7 +224,7 @@ export async function renderTreemap() {
     </div>
     <div class="tm-legend">
       ${legendHTML()}
-      <span class="tm-shapes">PR changes: ${shape("human")} human review ${shape("summary")} read summary ${shape("none")} no review <svg width="22" height="22">${ghostRing(11, 11)}${dotMark("none", 11, 11)}</svg> file not in map (on its folder's header)</span>
+      <span class="tm-shapes">PR changes: ${shape("human")} ${LABEL.human} ${shape("skim")} ${LABEL.skim} ${shape("none")} ${LABEL.none} <svg width="22" height="22">${ghostRing(11, 11)}${dotMark("none", 11, 11)}</svg> file not in map (on its folder's header)</span>
     </div>
     <div class="tm-wrap"><svg role="img" aria-label="Treemap of ${esc(view.n)} colored by ${esc(MODES[S.tm.mode])}, with this PR's changes as dots"></svg><div class="tm-tip" hidden></div></div>
     <table class="tm-table"><thead><tr>

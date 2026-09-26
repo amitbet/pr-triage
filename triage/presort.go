@@ -59,7 +59,7 @@ func (p *Presorter) rule(u *Unit, binary bool, src *Source) (Decision, bool) {
 		}
 	}
 	if isDocs(u.File) {
-		return Decision{Bucket: BucketSummary, ChangeKind: "docs", Reason: "documentation file", Confidence: 1}, true
+		return Decision{Bucket: BucketSkim, ChangeKind: "docs", Reason: "documentation file", Confidence: 1}, true
 	}
 	return Decision{}, false
 }

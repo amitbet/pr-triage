@@ -128,11 +128,11 @@ function showBudget() {
   range.max = list.length - 1;
   range.value = Math.max(0, list.findIndex((b) => b.name === cur));
   const b = list[range.value];
-  const rules = `human at score ≥ ${b.human}, summary ≥ ${b.summary}; a clean review lowers the score ${Math.round(b.trust * 100)}%`;
+  const rules = `human at score ≥ ${b.human}, skim ≥ ${b.skim}; a clean review lowers the score ${Math.round(b.trust * 100)}%`;
   let pr = "";
   if (S.result && S.result.files.some((f) => (f.units || []).some((u) => u.score))) {
     const c = budget.counts(S.result, b);
-    pr = `<div>this PR: ${["human", "summary", "none"].map((k) => `<span class="pill ${k}" title="${LABEL[k]}">${c[k]}</span>`).join(" ")} (human · summary · none)</div>`;
+    pr = `<div>this PR: ${["human", "skim", "none"].map((k) => `<span class="pill ${k}" title="${LABEL[k]}">${c[k]}</span>`).join(" ")} (human · skim · none)</div>`;
   } else if (S.result) pr = `<div>this PR was triaged before review budgets: re-run it to re-bucket</div>`;
   $("#budget-info").innerHTML = `<div><b>${esc(b.name)}</b>${b.name === budgetDefault() ? " (default)" : ""}: ${esc(rules)}</div>${pr}`;
   showLine();
@@ -206,6 +206,14 @@ export function jobSettings() {
   return { ...body, ...codeSources() };
 }
 
+export function fixSettings() {
+  return {
+    ...jobSettings(),
+    recursive: $("#recursive_fix").checked,
+    max_rounds: Math.max(1, Math.min(10, Number($("#max_fix_rounds").value) || 3)),
+  };
+}
+
 // refreshSettings updates the budget section for the result on screen.
 export const refreshSettings = () => showBudget();
 
@@ -225,6 +233,15 @@ export function initSettings(changed) {
   const tools = $("#review_tools");
   tools.checked = saved("review_tools") ? saved("review_tools") === "1" : !!S.cfg?.review_tools;
   tools.onchange = () => save("review_tools", tools.checked ? "1" : "0");
+  const recursive = $("#recursive_fix");
+  recursive.checked = saved("recursive_fix") ? saved("recursive_fix") === "1" : S.cfg?.recursive_fix !== false;
+  recursive.onchange = () => save("recursive_fix", recursive.checked ? "1" : "0");
+  const rounds = $("#max_fix_rounds");
+  rounds.value = saved("max_fix_rounds") || S.cfg?.max_fix_rounds || 3;
+  rounds.onchange = () => {
+    rounds.value = String(Math.max(1, Math.min(10, Number(rounds.value) || 3)));
+    save("max_fix_rounds", rounds.value);
+  };
   fillLang();
   fillCodeSources();
   $("#providers-refresh").onclick = () => loadProviders(true);

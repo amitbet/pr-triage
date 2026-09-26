@@ -11,9 +11,10 @@ function issuesHTML(f, u) {
   if (!u.issues?.length) return u.reviewed ? `<p><span class="lbl">Review</span>No issues found.</p>` : "";
   const items = u.issues.map((is, i) => {
     const draft = issueDraftButton(f, u, i);
+    const fix = `<button class="details-btn" data-act="fix-issue" data-unit="${esc(u.id)}" data-issue="${i}">Fix issue</button>`;
     return `<li><span class="dz ${SEV_CLASS[is.severity] || "high"}">${esc(is.severity)}</span>` +
       `${is.line ? `<span class="ln">line ${is.line}</span>` : ""}<b dir="auto">${esc(is.title)}</b>${issueCapChip(is)}` +
-      `${draft ? ` ${draft}` : ""}` +
+      `${draft ? ` ${draft}` : ""} ${fix}` +
       `${is.detail ? `<span class="idetail" dir="auto">${esc(is.detail)}</span>` : ""}${issueScenarioHTML(is, "idetail")}</li>`;
   }).join("");
   return `<p><span class="lbl">Issues found in review</span></p><ul class="issues">${items}</ul>`;
@@ -83,6 +84,7 @@ export function reviewHTML() {
     <div class="toolbar">
       ${BUCKETS.map((b) => `<span class="filter ${b} ${S.hidden.has(b) ? "off" : ""}" data-act="filter" data-b="${b}"><b>${r.counts?.[b] || 0}</b> ${LABEL[b]}</span>`).join("")}
       <span class="spacer"></span>
+      ${files.some((f) => f.units.some((u) => u.issues?.length)) ? `<button class="details-btn" data-act="fix-all">Fix all issues</button>` : ""}
       <button class="details-btn" data-act="all-diffs">${S.allHidden ? "show all code ▾" : "hide all code ▴"}</button>
       <span class="seg"><button class="${S.view === "split" ? "on" : ""}" data-act="view" data-v="split">Split</button><button class="${S.view === "unified" ? "on" : ""}" data-act="view" data-v="unified">Unified</button></span>
     </div>

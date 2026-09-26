@@ -3,8 +3,7 @@ package decls
 import (
 	"strings"
 
-	ts "github.com/odvcencio/gotreesitter"
-	"github.com/odvcencio/gotreesitter/grammars/python"
+	ts "github.com/amitbet/pr-triage/internal/sitter"
 )
 
 // The Python parser reads module-level functions, classes, their methods
@@ -51,7 +50,7 @@ type PyFile struct {
 	Generated bool
 }
 
-var pyGrammar = &grammar{load: python.Language}
+var pyGrammar = &grammar{load: loadPython}
 
 var pyLex = &lexRules{
 	comments: set("comment"),

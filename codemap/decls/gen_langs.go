@@ -4,17 +4,7 @@ import (
 	"path"
 	"strings"
 
-	ts "github.com/odvcencio/gotreesitter"
-	"github.com/odvcencio/gotreesitter/grammars/bash"
-	"github.com/odvcencio/gotreesitter/grammars/c"
-	"github.com/odvcencio/gotreesitter/grammars/cpp"
-	"github.com/odvcencio/gotreesitter/grammars/dart"
-	"github.com/odvcencio/gotreesitter/grammars/kotlin"
-	"github.com/odvcencio/gotreesitter/grammars/php"
-	"github.com/odvcencio/gotreesitter/grammars/powershell"
-	"github.com/odvcencio/gotreesitter/grammars/ruby"
-	"github.com/odvcencio/gotreesitter/grammars/scala"
-	"github.com/odvcencio/gotreesitter/grammars/swift"
+	ts "github.com/amitbet/pr-triage/internal/sitter"
 )
 
 // The language specs of the generic parser. Each says which nodes declare
@@ -27,7 +17,7 @@ var genLangs = []*Lang{langSh, langPS, langC, langCpp, langPHP, langScala, langK
 
 var langSh = &Lang{
 	ID: "sh", Family: "sh", Exts: []string{".sh", ".bash"}, TypeSep: ".", MemberSep: ".",
-	g: &grammar{load: bash.Language},
+	g: &grammar{load: loadBash},
 	// A command name is one token (functions may have dashes); other words
 	// and variables are strings, so only commands resolve.
 	lex: genLex(&lexRules{
@@ -88,7 +78,7 @@ func scriptPath(s string) string {
 var langPS = &Lang{
 	ID: "ps1", Family: "ps1", Exts: []string{".ps1", ".psm1"}, TypeSep: ".", MemberSep: ".",
 	Self: set("this"), VarPrefix: "$", CtorAlias: "new",
-	g: &grammar{load: powershell.Language},
+	g: &grammar{load: loadPowershell},
 	lex: genLex(&lexRules{
 		comments: set("comment"),
 		strings: set("expandable_string_literal", "verbatim_string_characters", "expandable_here_string_literal",
@@ -249,7 +239,7 @@ func cTest(p, b string) bool {
 
 var langC = &Lang{
 	ID: "c", Family: "c", Exts: []string{".c"}, TypeSep: ".", MemberSep: ".", chunks: true,
-	g: &grammar{load: c.Language}, lex: cLex,
+	g: &grammar{load: loadC}, lex: cLex,
 	cx:          &genCx{decide: set(cDecide...), nest: set(cNest...), ifs: set("if_statement")},
 	decl:        func(t *tree, n *ts.Node, typ string) (string, string) { return cDecl(t, n, typ, false) },
 	body:        func(*tree, *ts.Node) *ts.Node { return nil }, // C structs hold fields only
@@ -301,14 +291,10 @@ var langCpp = &Lang{
 	test: cTest,
 }
 
-// cppLanguage turns on gotreesitter's port of tree-sitter's error recovery,
-// which it ships off for C++ (on for C). Without it a macro it can't expand
-// (an IRAM_ATTR, a macro call next to an ambiguous cast) can turn a whole
-// file into one parse error. GOT_C_RECOVERY still overrides.
+// The pure Go loader enables C++ error recovery for macro-heavy files.
+// The cgo loader uses the C runtime's recovery behavior.
 func cppLanguage() *ts.Language {
-	l := cpp.Language()
-	l.CRecoveryCostCompetitionEnabledByDefault = ts.DiagnoseCRecoveryGate(l).Supported
-	return l
+	return loadCpp()
 }
 
 // --- PHP ---
@@ -316,7 +302,7 @@ func cppLanguage() *ts.Language {
 var langPHP = &Lang{
 	ID: "php", Family: "php", Exts: []string{".php"}, TypeSep: "::", MemberSep: "::",
 	Self: set("this", "self", "static"), Super: set("parent"), VarPrefix: "$",
-	g: &grammar{load: php.Language},
+	g: &grammar{load: loadPHP},
 	lex: genLex(&lexRules{
 		comments: set("comment"),
 		strings:  set("string", "encapsed_string", "heredoc", "nowdoc", "shell_command_expression"),
@@ -377,6 +363,25 @@ var langPHP = &Lang{
 			return
 		}
 		php := func(s string) string { return strings.ReplaceAll(strings.TrimPrefix(stripSpace(s), `\`), `\`, ".") }
+		// Older C grammars expose grouped use clauses as an error node.
+		// Recover those imports from the declaration text.
+		if raw := t.text(n); strings.Contains(raw, "{") {
+			open, close := strings.IndexByte(raw, '{'), strings.LastIndexByte(raw, '}')
+			if close > open {
+				prefix := php(strings.TrimSpace(strings.TrimPrefix(raw[:open], "use ")))
+				for _, part := range strings.Split(raw[open+1:close], ",") {
+					part = strings.TrimSpace(part)
+					alias := ""
+					if before, after, ok := strings.Cut(part, " as "); ok {
+						part, alias = before, strings.TrimSpace(after)
+					}
+					if part != "" {
+						f.Imports = append(f.Imports, GenImport{Path: strings.TrimSuffix(prefix, ".") + "." + php(part), Alias: alias})
+					}
+				}
+				return
+			}
+		}
 		prefix := ""
 		if g := t.field(n, "body"); g != nil {
 			prefix = php(t.text(firstOf(t, n, "namespace_name"))) + "."
@@ -408,7 +413,7 @@ var langPHP = &Lang{
 var langScala = &Lang{
 	ID: "scala", Family: "scala", Exts: []string{".scala", ".sc"}, TypeSep: ".", MemberSep: ".", chunks: true,
 	Self: set("this"), Super: set("super"), ImplicitSelf: true, ctorName: "apply",
-	g: &grammar{load: scala.Language},
+	g: &grammar{load: loadScala},
 	lex: &lexRules{
 		comments: set("comment", "block_comment"),
 		strings:  set("string", "interpolated_string_expression", "character_literal"),
@@ -504,7 +509,7 @@ var langScala = &Lang{
 var langKotlin = &Lang{
 	ID: "kt", Family: "kt", Exts: []string{".kt"}, TypeSep: ".", MemberSep: ".", chunks: true,
 	Self: set("this"), Super: set("super"), ImplicitSelf: true,
-	g: &grammar{load: kotlin.Language},
+	g: &grammar{load: loadKotlin},
 	lex: &lexRules{
 		comments: set("line_comment", "multiline_comment", "comment"),
 		strings:  set("string_literal", "character_literal", "multiline_string_literal"),
@@ -593,7 +598,7 @@ var langKotlin = &Lang{
 var langRuby = &Lang{
 	ID: "rb", Family: "rb", Exts: []string{".rb", ".rake"}, TypeSep: "::", MemberSep: ".",
 	Self: set("self"), Super: set("super"), ImplicitSelf: true, CtorAlias: "new", ctorName: "initialize",
-	g: &grammar{load: ruby.Language},
+	g: &grammar{load: loadRuby},
 	lex: genLex(&lexRules{
 		comments: set("comment"),
 		strings:  set("string", "heredoc_body", "subshell", "regex", "delimited_symbol", "string_array", "symbol_array", "character"),
@@ -679,7 +684,7 @@ var langRuby = &Lang{
 var langSwift = &Lang{
 	ID: "swift", Family: "swift", Exts: []string{".swift"}, TypeSep: ".", MemberSep: ".", chunks: true,
 	Self: set("self"), Super: set("super"), ImplicitSelf: true, ctorName: "init",
-	g: &grammar{load: swift.Language},
+	g: &grammar{load: loadSwift},
 	lex: &lexRules{
 		comments: set("comment", "multiline_comment"),
 		strings:  set("line_string_literal", "multi_line_string_literal", "raw_string_literal"),
@@ -757,7 +762,7 @@ var langSwift = &Lang{
 var langDart = &Lang{
 	ID: "dart", Family: "dart", Exts: []string{".dart"}, TypeSep: ".", MemberSep: ".", chunks: true,
 	Self: set("this"), Super: set("super"), ImplicitSelf: true,
-	g: &grammar{load: dart.Language},
+	g: &grammar{load: loadDart},
 	lex: &lexRules{
 		comments: set("comment", "documentation_comment"),
 		strings:  set("string_literal"),

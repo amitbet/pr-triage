@@ -6,8 +6,8 @@ force_human:
   - "internal/billing/**"
   - "pkg/recommendation/**"
 thresholds:
-  none: 0.9      # min confidence to accept "none", else -> summary
-  summary: 0.7   # min confidence to accept "summary", else -> human
+  none: 0.9      # min confidence to accept "none", else -> skim
+  skim: 0.7   # min confidence to accept "skim", else -> human
 max_unit_chars: 24000
 # Other units' diffs shown with each unit in the review prompt, most related first.
 review_context_chars: 32000
@@ -19,7 +19,7 @@ tiers:
   review_budget: balanced     # most | more | balanced | less | least (-review-budget overrides)
   # Override single fields of a step:
   # budgets:
-  #   balanced: { trust: 0.3, human: 40, summary: 15 }
-  #   least:    { trust: 0.6, human: 50, summary: 20 }
+  #   balanced: { trust: 0.3, human: 40, skim: 15 }
+  #   least:    { trust: 0.6, human: 50, skim: 20 }
   # kind_weights: { test: 0.8, refactor: 0.6 }
   critical_impact: 85         # units at or above always go to human (0: off)

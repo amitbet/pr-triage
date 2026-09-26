@@ -19,6 +19,9 @@ type Pipeline struct {
 	// Review calls are slower (bigger model, repo tools), so they get
 	// their own limit.
 	ReviewConcurrency int
+	// ReviewFilter, when set, limits the review stage to selected units.
+	// Classification and scoring still cover the full diff.
+	ReviewFilter func(*Unit) bool
 	// Progress, if set, is called as units finish in each LLM stage.
 	Progress func(stage string, done, total int)
 	// Warn, if set, gets problems that only degrade the run.
@@ -63,7 +66,7 @@ func (r *Report) Counts() map[Bucket]int {
 	return c
 }
 
-// Run triages src and returns units sorted human → summary → none.
+// Run triages src and returns units sorted human → skim → none.
 func (p *Pipeline) Run(ctx context.Context, src *Source) []*Unit {
 	units := BuildUnits(src.Files, src.Content, p.Presorter.Policy.MaxUnitChars)
 	rest := p.Presorter.Presort(units, src)
@@ -113,7 +116,7 @@ func (p *Pipeline) Run(ctx context.Context, src *Source) []*Unit {
 		for _, u := range units {
 			// Units placed in human before review get review notes, the
 			// rest a summary and a second opinion.
-			if tiers.reviewable(u) {
+			if (p.ReviewFilter != nil && p.ReviewFilter(u)) || (p.ReviewFilter == nil && tiers.reviewable(u)) {
 				toSummarize = append(toSummarize, u)
 				prev[u] = u.Decision.Bucket
 			}
@@ -132,7 +135,7 @@ func (p *Pipeline) Run(ctx context.Context, src *Source) []*Unit {
 	return units
 }
 
-// SortByBucket orders units human → summary → none, and by score inside
+// SortByBucket orders units human → skim → none, and by score inside
 // a bucket (then risk), stable for ties.
 func SortByBucket(units []*Unit) {
 	total := func(u *Unit) int {

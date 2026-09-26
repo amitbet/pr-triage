@@ -155,13 +155,13 @@ func TestTierMoves(t *testing.T) {
 	medium := []any{map[string]any{"severity": "medium", "line": 5, "title": "b is never checked", "failure_scenario": "b=0 divides by zero"}}
 	low := []any{map[string]any{"severity": "low", "title": "log text typo"}}
 	units, _ := runScripted(t, m, "svc", diff, map[string]script{
-		"svc/calm.go":         {bucket: "summary", kind: "refactor", safe: true},
+		"svc/calm.go":         {bucket: "skim", kind: "refactor", safe: true},
 		"svc/calm2.go":        {bucket: "human", kind: "behavior", safe: true, issues: low},
-		"svc/flaky.go":        {bucket: "summary", kind: "behavior", safe: true},
-		"svc/both.go":         {bucket: "summary", kind: "behavior", safe: true},
-		"svc/calm3.go":        {bucket: "summary", kind: "refactor", safe: true},
-		"svc/hot.go":          {bucket: "summary", kind: "behavior", safe: true},
-		"svc/issue.go":        {bucket: "summary", kind: "behavior", safe: true, issues: medium},
+		"svc/flaky.go":        {bucket: "skim", kind: "behavior", safe: true},
+		"svc/both.go":         {bucket: "skim", kind: "behavior", safe: true},
+		"svc/calm3.go":        {bucket: "skim", kind: "refactor", safe: true},
+		"svc/hot.go":          {bucket: "skim", kind: "behavior", safe: true},
+		"svc/issue.go":        {bucket: "skim", kind: "behavior", safe: true, issues: medium},
 		"svc/test_like.go":    {bucket: "human", kind: "test", safe: true},
 		"db/migrations/1.sql": {safe: true},
 	})
@@ -176,14 +176,14 @@ func TestTierMoves(t *testing.T) {
 		}
 		return u
 	}
-	// Balanced: trust 0.3, human >= 40, summary >= 15.
+	// Balanced: trust 0.3, human >= 40, skim >= 15.
 	check("svc/both.go", BucketHuman, 41, "score 41 = 59 × 0.7 (clean review) → human (≥ 40 on balanced)") // √(60×58)
-	check("svc/flaky.go", BucketSummary, 28, "40 × 0.7")                                                   // √(20×80): a clean review is trusted
-	check("svc/hot.go", BucketSummary, 22, "→ summary")                                                    // impact 82 is under critical_impact 85
+	check("svc/flaky.go", BucketSkim, 28, "40 × 0.7")                                                      // √(20×80): a clean review is trusted
+	check("svc/hot.go", BucketSkim, 22, "→ skim")                                                          // impact 82 is under critical_impact 85
 	check("svc/calm.go", BucketNone, 5, "12 × kind 0.6 × 0.7")
 	check("svc/calm3.go", BucketNone, 9, "→ none")
-	check("svc/calm2.go", BucketSummary, 15, "review attention 15")                                  // a low issue: half the trust, attention floor
-	check("svc/test_like.go", BucketSummary, 7, "raised to summary: the classifier asked for human") // scores none
+	check("svc/calm2.go", BucketSkim, 15, "review attention 15")                               // a low issue: half the trust, attention floor
+	check("svc/test_like.go", BucketSkim, 7, "raised to skim: the classifier asked for human") // scores none
 	if u := check("svc/issue.go", BucketHuman, 45, "any budget"); u.Score.Pin != BucketHuman || u.Issues[0].Line != 5 {
 		t.Errorf("issue: %+v", *u.Score)
 	}
@@ -214,11 +214,11 @@ func TestTierMoves(t *testing.T) {
 		return out
 	}
 	most := bucketsAt("most")
-	if most["svc/flaky.go"] != BucketHuman || most["svc/hot.go"] != BucketHuman || most["svc/calm.go"] != BucketNone || most["svc/calm3.go"] != BucketSummary {
+	if most["svc/flaky.go"] != BucketHuman || most["svc/hot.go"] != BucketHuman || most["svc/calm.go"] != BucketNone || most["svc/calm3.go"] != BucketSkim {
 		t.Errorf("most: %v", most)
 	}
 	least := bucketsAt("least")
-	if least["svc/both.go"] != BucketSummary || least["svc/issue.go"] != BucketHuman || least["db/migrations/1.sql"] != BucketHuman || least["svc/flaky.go"] != BucketSummary {
+	if least["svc/both.go"] != BucketSkim || least["svc/issue.go"] != BucketHuman || least["db/migrations/1.sql"] != BucketHuman || least["svc/flaky.go"] != BucketSkim {
 		t.Errorf("least: %v", least)
 	}
 	if err := Rebucket(all, DefaultTierPolicy(), "nope"); err == nil {
@@ -237,8 +237,8 @@ func TestBudgetsOnErrorCachePR(t *testing.T) {
 	tp := DefaultTierPolicy()
 	want := map[string]map[Bucket]int{
 		"most":     {BucketHuman: 9},
-		"balanced": {BucketHuman: 1, BucketSummary: 8},
-		"least":    {BucketSummary: 9},
+		"balanced": {BucketHuman: 1, BucketSkim: 8},
+		"least":    {BucketSkim: 9},
 	}
 	for budget, counts := range want {
 		got := map[Bucket]int{}
@@ -268,14 +268,14 @@ func TestBudgetsOnErrorCachePR(t *testing.T) {
 }
 
 func TestNoMapNoMoves(t *testing.T) {
-	answers := map[string]script{"svc/calm.go": {bucket: "summary", kind: "refactor", safe: true}}
+	answers := map[string]script{"svc/calm.go": {bucket: "skim", kind: "refactor", safe: true}}
 	units, _ := runScripted(t, nil, "", fileDiff("svc/calm.go"), answers)
-	if u := units["svc/calm.go"]; u.Decision.Bucket != BucketSummary || u.Impact != nil || !u.Reviewed || u.Likelihood == nil {
+	if u := units["svc/calm.go"]; u.Decision.Bucket != BucketSkim || u.Impact != nil || !u.Reviewed || u.Likelihood == nil {
 		t.Errorf("without a map: %+v impact=%v likelihood=%v", u.Decision, u.Impact, u.Likelihood)
 	}
 	// Repo missing from the map: impact unknown, still no demotion.
 	units, _ = runScripted(t, testMap(t), "other", fileDiff("svc/calm.go"), answers)
-	if u := units["svc/calm.go"]; u.Decision.Bucket != BucketSummary || u.Impact.Known() {
+	if u := units["svc/calm.go"]; u.Decision.Bucket != BucketSkim || u.Impact.Known() {
 		t.Errorf("unknown repo: %+v impact=%+v", u.Decision, u.Impact)
 	}
 }
@@ -374,22 +374,22 @@ func TestAssessResolvesNamesOnBase(t *testing.T) {
 }
 
 func TestParsePolicyTiers(t *testing.T) {
-	p, err := ParsePolicy([]byte("tiers:\n  review_budget: less\n  budgets:\n    less: { human: 60 }\n    custom: { trust: 1, human: 90, summary: 50 }\n  kind_weights: { test: 0.5 }\n  critical_impact: 0\n"))
+	p, err := ParsePolicy([]byte("tiers:\n  review_budget: less\n  budgets:\n    less: { human: 60 }\n    custom: { trust: 1, human: 90, skim: 50 }\n  kind_weights: { test: 0.5 }\n  critical_impact: 0\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	d := DefaultTierPolicy()
 	b, name, _ := p.Tiers.Budget("")
-	if name != "less" || b.Human != 60 || b.Summary != d.Budgets["less"].Summary || b.Trust != d.Budgets["less"].Trust {
+	if name != "less" || b.Human != 60 || b.Skim != d.Budgets["less"].Skim || b.Trust != d.Budgets["less"].Trust {
 		t.Errorf("budget %s = %+v", name, b)
 	}
-	if p.Tiers.KindWeights["test"] != 0.5 || p.Tiers.KindWeights["refactor"] != d.KindWeights["refactor"] || p.Tiers.CriticalImpact != 0 || p.Tiers.Budgets["custom"].Human != 90 {
+	if p.Tiers.KindWeights["test"] != 0.5 || p.Tiers.KindWeights["refactor"] != d.KindWeights["refactor"] || p.Tiers.CriticalImpact != 0 || p.Tiers.Budgets["custom"].Human != 90 || p.Tiers.Budgets["custom"].Skim != 50 {
 		t.Errorf("tiers = %+v", p.Tiers)
 	}
 	if bs := p.Tiers.OrderedBudgets(); len(bs) != 6 || bs[0].Name != "most" || bs[5].Name != "custom" {
 		t.Errorf("ordered = %+v", bs)
 	}
-	for _, bad := range []string{"tiers: { review_budget: nope }", "tiers: { budgets: { more: { summary: 99 } } }", "tiers: { budgets: { more: { trust: 2 } } }"} {
+	for _, bad := range []string{"tiers: { review_budget: nope }", "tiers: { budgets: { more: { skim: 99 } } }", "tiers: { budgets: { more: { trust: 2 } } }"} {
 		if _, err := ParsePolicy([]byte(bad)); err == nil {
 			t.Errorf("%s: want an error", bad)
 		}
