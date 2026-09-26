@@ -18,6 +18,7 @@ import (
 
 type fixRequest struct {
 	Key       string `json:"key"`
+	Location  string `json:"location"` // worktree (default) | clone
 	UnitID    string `json:"unit_id,omitempty"`
 	Issue     int    `json:"issue,omitempty"`
 	All       bool   `json:"all"`
@@ -39,6 +40,9 @@ var fixTool = llm.ToolDefinition{
 func (t *triager) startFix(req fixRequest) (*job, error) {
 	if req.Key == "" || req.MaxRounds < 1 || req.MaxRounds > 10 {
 		return nil, errors.New("fix needs a result and max rounds between 1 and 10")
+	}
+	if req.Location != "" && req.Location != "worktree" && req.Location != "clone" {
+		return nil, errors.New("fix location must be worktree or clone")
 	}
 	if !req.All && req.UnitID == "" {
 		return nil, errors.New("fix needs a unit and issue")
@@ -92,38 +96,63 @@ func (t *triager) runFix(ctx context.Context, jobID string, old *PRResult, req f
 		return nil, errors.New("enable a summarizer to fix and review issues")
 	}
 	ref := old.PR.PRRef
-	repoDir := t.fetcher.RepoDir(ref)
+	repoDir, err := filepath.Abs(t.fetcher.RepoDir(ref))
+	if err != nil {
+		return nil, err
+	}
 	fixDir := old.LocalFixDir
 	fixBranch := old.LocalFixBranch
+	fixLocation := old.LocalFixLocation
 	if fixDir == "" {
-		// The cached clone has no checkout. Keep each fix in its own local
-		// worktree so later iterations and manual edits remain available.
 		if _, _, err := t.fetcher.Fetch(ref); err != nil {
 			return nil, err
 		}
-		var err error
-		fixDir, err = filepath.Abs(filepath.Join(t.opts.cache, "fixes", jobID))
-		if err != nil {
-			return nil, err
+		fixLocation = req.Location
+		if fixLocation == "" {
+			fixLocation = "worktree"
 		}
-		if err := os.MkdirAll(filepath.Dir(fixDir), 0o755); err != nil {
-			return nil, err
-		}
-		fixBranch, err = checkoutFixBranch(repoDir, fixDir, old.PR, jobID)
-		if err != nil {
-			return nil, err
+		if fixLocation == "clone" {
+			fixDir = repoDir
+			fixBranch, err = checkoutCloneBranch(repoDir, old.PR, jobID)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			fixDir, err = filepath.Abs(filepath.Join(t.opts.cache, "fixes", jobID))
+			if err != nil {
+				return nil, err
+			}
+			if err := os.MkdirAll(filepath.Dir(fixDir), 0o755); err != nil {
+				return nil, err
+			}
+			fixBranch, err = checkoutFixBranch(repoDir, fixDir, old.PR, jobID)
+			if err != nil {
+				return nil, err
+			}
 		}
 	} else {
-		root, err := filepath.Abs(filepath.Join(t.opts.cache, "fixes"))
+		if fixLocation == "" {
+			fixLocation = "worktree"
+		} // older cached results
+		path, err := filepath.Abs(fixDir)
 		if err != nil {
 			return nil, err
 		}
-		path, err := filepath.Abs(fixDir)
-		if err != nil || !strings.HasPrefix(path, root+string(os.PathSeparator)) {
-			return nil, errors.New("fix worktree is outside the cache")
+		if fixLocation == "clone" {
+			if path != repoDir {
+				return nil, errors.New("fix clone does not match the cached repository")
+			}
+		} else {
+			root, err := filepath.Abs(filepath.Join(t.opts.cache, "fixes"))
+			if err != nil {
+				return nil, err
+			}
+			if !strings.HasPrefix(path, root+string(os.PathSeparator)) {
+				return nil, errors.New("fix worktree is outside the cache")
+			}
 		}
 		if _, err := os.Stat(filepath.Join(fixDir, ".git")); err != nil {
-			return nil, fmt.Errorf("fix worktree is missing: %w", err)
+			return nil, fmt.Errorf("fix checkout is missing: %w", err)
 		}
 		fixBranch, err = ensureFixBranch(repoDir, fixDir, old.PR, jobID)
 		if err != nil {
@@ -164,6 +193,7 @@ func (t *triager) runFix(ctx context.Context, jobID string, old *PRResult, req f
 		}
 		next.LocalFixDir = fixDir
 		next.LocalFixBranch = fixBranch
+		next.LocalFixLocation = fixLocation
 		next.FixRounds = current.FixRounds + 1
 		next.Key = "fix__" + ref.FileKey() + "__" + jobID
 		if err := t.saveFixResult(next); err != nil {
@@ -208,6 +238,58 @@ func checkoutFixBranch(repoDir, fixDir string, pr *triage.PRInfo, jobID string) 
 		return "", err
 	}
 	return branch, nil
+}
+
+// checkoutCloneBranch uses the cached clone itself. Fetch creates it with
+// --no-checkout, so its first checkout needs --force to populate the files.
+// Any later local edits are kept; a new fix job cannot overwrite them.
+func checkoutCloneBranch(repoDir string, pr *triage.PRInfo, jobID string) (string, error) {
+	status, err := triage.Git(repoDir, "status", "--porcelain", "--untracked-files=all")
+	if err != nil {
+		return "", err
+	}
+	empty, err := emptyCloneCheckout(repoDir)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(status) != "" && !empty {
+		return "", fmt.Errorf("cached clone has local changes at %s; open its existing fix result or choose a worktree", repoDir)
+	}
+	force := []string{}
+	if empty {
+		force = append(force, "--force")
+	}
+	name := strings.TrimSpace(pr.HeadRef)
+	if name != "" {
+		if _, err := triage.Git(repoDir, "check-ref-format", "--branch", name); err == nil {
+			if tip, err := triage.Git(repoDir, "rev-parse", "--verify", "refs/heads/"+name); err == nil && strings.TrimSpace(tip) == pr.HeadOid {
+				args := append([]string{"switch"}, force...)
+				if _, err := triage.Git(repoDir, append(args, name)...); err == nil {
+					return name, nil
+				}
+			}
+		}
+	}
+	branch := availableFixBranch(repoDir, pr, jobID)
+	args := append([]string{"switch"}, force...)
+	args = append(args, "-c", branch, pr.HeadOid)
+	if _, err := triage.Git(repoDir, args...); err != nil {
+		return "", err
+	}
+	return branch, nil
+}
+
+func emptyCloneCheckout(repoDir string) (bool, error) {
+	entries, err := os.ReadDir(repoDir)
+	if err != nil {
+		return false, err
+	}
+	for _, e := range entries {
+		if e.Name() != ".git" {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func ensureFixBranch(repoDir, fixDir string, pr *triage.PRInfo, jobID string) (string, error) {

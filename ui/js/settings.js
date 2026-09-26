@@ -209,6 +209,7 @@ export function jobSettings() {
 export function fixSettings() {
   return {
     ...jobSettings(),
+    location: $("#fix_location").value,
     recursive: $("#recursive_fix").checked,
     max_rounds: Math.max(1, Math.min(10, Number($("#max_fix_rounds").value) || 3)),
   };
@@ -234,6 +235,9 @@ export function initSettings(changed) {
   tools.checked = saved("review_tools") ? saved("review_tools") === "1" : !!S.cfg?.review_tools;
   tools.onchange = () => save("review_tools", tools.checked ? "1" : "0");
   const recursive = $("#recursive_fix");
+  const location = $("#fix_location");
+  location.value = saved("fix_location") || S.cfg?.fix_location || "worktree";
+  location.onchange = () => save("fix_location", location.value);
   recursive.checked = saved("recursive_fix") ? saved("recursive_fix") === "1" : S.cfg?.recursive_fix !== false;
   recursive.onchange = () => save("recursive_fix", recursive.checked ? "1" : "0");
   const rounds = $("#max_fix_rounds");

@@ -94,3 +94,49 @@ func TestCheckoutFixBranchAtPRHead(t *testing.T) {
 		t.Errorf("second worktree branch = %q", branch)
 	}
 }
+
+func TestCheckoutCachedClonePreservesExistingChanges(t *testing.T) {
+	root := t.TempDir()
+	src, clone := filepath.Join(root, "source"), filepath.Join(root, "clone")
+	if err := os.Mkdir(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run := func(args ...string) string {
+		t.Helper()
+		out, err := exec.Command("git", args...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	run("init", "-q", src)
+	if err := os.WriteFile(filepath.Join(src, "a.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("-C", src, "add", "a.go")
+	run("-C", src, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "base")
+	head := run("-C", src, "rev-parse", "HEAD")
+	run("clone", "-q", "--no-checkout", src, clone)
+	empty, err := emptyCloneCheckout(clone)
+	if err != nil || !empty {
+		t.Fatalf("no-checkout clone empty=%v err=%v", empty, err)
+	}
+	pr := &triage.PRInfo{PRRef: triage.PRRef{Number: 4}, HeadRef: "feature/fix", HeadOid: head}
+	branch, err := checkoutCloneBranch(clone, pr, "abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if branch != "feature/fix" || run("-C", clone, "branch", "--show-current") != branch || run("-C", clone, "rev-parse", "HEAD") != head {
+		t.Errorf("branch=%q head=%s", branch, run("-C", clone, "rev-parse", "HEAD"))
+	}
+	if err := os.WriteFile(filepath.Join(clone, "a.go"), []byte("package changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := checkoutCloneBranch(clone, pr, "def456"); err == nil {
+		t.Error("dirty cached clone was overwritten")
+	}
+	content, err := os.ReadFile(filepath.Join(clone, "a.go"))
+	if err != nil || string(content) != "package changed\n" {
+		t.Errorf("local content = %q, %v", content, err)
+	}
+}

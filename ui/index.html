@@ -75,9 +75,11 @@
     </section>
     <section>
       <h4>Fix issues</h4>
+      <label for="fix_location">Apply fixes in</label>
+      <select id="fix_location" aria-label="fix location"><option value="worktree">Separate worktree (default)</option><option value="clone">Cached local clone</option></select>
       <label class="check"><input type="checkbox" id="recursive_fix"> keep fixing issues found by follow-up reviews</label>
       <label class="check" for="max_fix_rounds">Maximum fix and review rounds <input type="number" id="max_fix_rounds" min="1" max="10" value="3" style="width:64px"></label>
-      <p class="hint">Fixes stay in a local worktree. The selected issue and code touched by each fix are reviewed after every round.</p>
+      <p class="hint">The cached clone option checks out the PR branch in the app's clone and applies changes there. It stops if that clone already has local changes. Existing fix results keep their current location. The selected issue and code touched by each fix are reviewed after every round.</p>
     </section>
   </form>
 </dialog>

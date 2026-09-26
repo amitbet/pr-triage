@@ -50,12 +50,13 @@ type PRResult struct {
 	Attention  int                `json:"attention"`
 	CodeMap    string             `json:"codemap,omitempty"` // map build time
 	// ReviewBudget placed the units; Budgets lets the UI re-place them.
-	ReviewBudget   string               `json:"review_budget,omitempty"`
-	Budgets        []triage.NamedBudget `json:"budgets,omitempty"`
-	Files          []resultFile         `json:"files"`
-	LocalFixDir    string               `json:"local_fix_dir,omitempty"`
-	LocalFixBranch string               `json:"local_fix_branch,omitempty"`
-	FixRounds      int                  `json:"fix_rounds,omitempty"`
+	ReviewBudget     string               `json:"review_budget,omitempty"`
+	Budgets          []triage.NamedBudget `json:"budgets,omitempty"`
+	Files            []resultFile         `json:"files"`
+	LocalFixDir      string               `json:"local_fix_dir,omitempty"`
+	LocalFixBranch   string               `json:"local_fix_branch,omitempty"`
+	LocalFixLocation string               `json:"local_fix_location,omitempty"`
+	FixRounds        int                  `json:"fix_rounds,omitempty"`
 }
 
 // tierPolicy is the budget table the result was triaged with (the
@@ -449,6 +450,7 @@ func newServeHandler(o options) (http.Handler, error) {
 			"review_budget":  orDefault(o.reviewBudget, triage.DefaultBudget),
 			"recursive_fix":  true,
 			"max_fix_rounds": 3,
+			"fix_location":   "worktree",
 			"budgets":        triage.DefaultTierPolicy().OrderedBudgets(),
 			"codemap":        codeMapVersion(loadCodeMap(o.codemapDir)),
 			"codemap_repos":  codeMapRepos(loadCodeMap(o.codemapDir)),

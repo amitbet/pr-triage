@@ -14,7 +14,7 @@ On Windows, run `bash scripts/build-desktop.sh` from an MSYS2 UCRT64 shell if
 | Windows amd64 | `dist/desktop/pr-triage-windows-amd64.exe` | MinGW GCC; WebView2 runtime to run |
 
 The build is native because cgo compiles each tree-sitter grammar for the host
-OS and architecture. `.github/workflows/desktop.yml` runs tests and builds on
+OS and architecture. `.github/workflows/ci.yml` runs tests and builds on
 all three hosts, then uploads the results as workflow artifacts. The macOS app
 is unsigned.
 
