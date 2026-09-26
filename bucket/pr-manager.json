@@ -1,0 +1,19 @@
+{
+    "version": "0.1.5",
+    "description": "Sort pull request changes by the human review they need",
+    "homepage": "https://github.com/amitbet/pr-manager",
+    "license": "Apache-2.0",
+    "depends": ["git", "gh"],
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/amitbet/pr-manager/releases/download/v0.1.5/pr-manager_0.1.5_windows_amd64.zip",
+            "hash": "8c56e1e1a622034a42bd60382e10dc5648ca96d13c489634ec2637a16e23cc14"
+        },
+        "arm64": {
+            "url": "https://github.com/amitbet/pr-manager/releases/download/v0.1.5/pr-manager_0.1.5_windows_arm64.zip",
+            "hash": "57350a0ca9e1dd646ce0cc899e5f5c81db9f5362a3298cf7d36134fb691a26fd"
+        }
+    },
+    "bin": "pr-manager.exe",
+    "notes": "Run 'gh auth login', then 'pr-manager serve'."
+}

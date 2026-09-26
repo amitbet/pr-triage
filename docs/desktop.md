@@ -22,7 +22,16 @@ publishes through `.github/workflows/release.yml`. The release assets are
 `PR-Manager-macos-arm64.zip`, `pr-manager-linux-amd64.tar.gz`, and
 `pr-manager-windows-amd64.exe`. The macOS app is ad-hoc signed but not
 notarized. Each stable release also updates `Casks/pr-manager-desktop.rb`, which
-installs the app and removes quarantine (see [install](install.md)).
+installs the app and removes quarantine (see [install](install.md)), and
+`bucket/pr-manager-desktop.json` for Scoop on Windows.
+
+The app icon comes from `assets/icon/icon.svg`. After editing it, run
+`scripts/icons.sh` (needs `rsvg-convert` from `brew install librsvg`) and
+commit the regenerated `icon.png` and `icon.icns`. The macOS build copies
+`icon.icns` into the bundle, and Linux embeds `icon.png` as the window icon.
+On Windows the build runs `go-winres` with `assets/icon/winres.json`. This
+adds the icon and version metadata (product name, company, version) to the
+exe, which Explorer shows and which makes Defender less likely to flag it.
 
 The CLI and browser server remain the pure Go build. `go run . serve`,
 `make serve`, and `make build` use gotreesitter and do not require a C compiler.

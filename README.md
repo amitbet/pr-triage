@@ -41,8 +41,8 @@ In the UI, each review issue has a **Fix issue** button, and the review toolbar 
 ## Installation
 
 The release build is one executable with the UI, code-map indexer and default
-scoring config embedded. macOS Homebrew packaging and macOS/Linux/Windows release
-archives are configured. See [installation and release setup](docs/install.md)
+scoring config embedded. Homebrew packages for macOS, a Scoop bucket for Windows,
+and macOS/Linux/Windows release archives are configured. See [installation and release setup](docs/install.md)
 for runtime dependencies, direct downloads and release setup.
 
 For the Wails desktop build with cgo tree-sitter and native builds for macOS
@@ -72,6 +72,14 @@ The CLI (macOS and Linux) runs the same UI in your browser, plus the triage,
 ```sh
 brew install --cask amitbet/pr-manager/pr-manager
 pr-manager serve
+```
+
+On Windows, with [Scoop](https://scoop.sh) (the bucket also lives in this repository):
+
+```powershell
+scoop bucket add pr-manager https://github.com/amitbet/pr-manager
+scoop install pr-manager-desktop    # or pr-manager for the CLI
+gh auth login
 ```
 
 ## Usage

@@ -48,7 +48,20 @@ gh auth login
 pr-manager.exe serve
 ```
 
-There is no Windows package-manager manifest yet.
+## Scoop on Windows
+
+This repository is also a Scoop bucket:
+
+```powershell
+scoop bucket add pr-manager https://github.com/amitbet/pr-manager
+scoop install pr-manager            # CLI, amd64 and arm64
+scoop install pr-manager-desktop    # desktop app, amd64
+```
+
+Both install `git` and `gh` as dependencies. The desktop app gets a Start
+menu shortcut named PR Manager. The binaries are not code-signed, but Scoop
+downloads them itself, so Windows SmartScreen does not block them the way it
+blocks an exe downloaded in a browser.
 
 ## Data and code maps
 
@@ -101,7 +114,9 @@ default branch when it publishes a release, so `brew tap amitbet/pr-manager
 https://github.com/amitbet/pr-manager` picks it up. No separate tap repository or
 extra token is needed. The workflow `GITHUB_TOKEN` uploads the release assets
 and pushes the cask. If the default branch is protected, allow GitHub Actions to
-push to it.
+push to it. The Scoop bucket works the same way. CI regenerates
+`bucket/pr-manager.json` and `bucket/pr-manager-desktop.json` with
+`scripts/scoop-manifest.sh` and commits them with the casks.
 
 A push to `main` publishes a release. CI resolves the next patch version, tags
 that commit, and uploads the binaries. The first release is `v0.1.0`. The next
@@ -120,7 +135,8 @@ same tests and desktop builds without publishing.
 Pushing a version tag yourself, such as `v1.0.0`, still runs
 `.github/workflows/release.yml`. Use that for a minor or major bump. Tags
 created by CI do not start that workflow again. A prerelease tag such as
-`v0.2.0-rc.1` publishes release assets and leaves the cask unchanged.
+`v0.2.0-rc.1` publishes release assets and leaves the casks and Scoop
+manifests unchanged.
 
 To validate locally:
 

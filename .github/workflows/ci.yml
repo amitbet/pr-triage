@@ -2,7 +2,7 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore: ['Casks/**']
+    paths-ignore: ['Casks/**', 'bucket/**']
   pull_request:
   workflow_dispatch:
 permissions:
@@ -238,9 +238,9 @@ jobs:
             "$RUNNER_TEMP"/cli-release/*.zip \
             "$RUNNER_TEMP/cli-release/checksums.txt" \
             --clobber
-      # Casks/** changes do not trigger CI, so this commit does not start a
-      # new release.
-      - name: Update CLI Homebrew cask
+      # Casks/** and bucket/** changes do not trigger CI, so this commit does
+      # not start a new release.
+      - name: Update CLI Homebrew cask and Scoop manifest
         if: ${{ !contains(needs.version.outputs.tag, '-') }}
         env:
           RELEASE_TAG: ${{ needs.version.outputs.tag }}
@@ -248,12 +248,13 @@ jobs:
           for attempt in 1 2 3; do
             git fetch origin main
             git checkout -B main origin/main
-            mkdir -p Casks
+            mkdir -p Casks bucket
             cp "$RUNNER_TEMP/cli-release/homebrew/Casks/pr-manager.rb" Casks/pr-manager.rb
-            git add Casks/pr-manager.rb
+            bash scripts/scoop-manifest.sh cli "$RELEASE_TAG" "$RUNNER_TEMP/cli-release/checksums.txt" > bucket/pr-manager.json
+            git add Casks/pr-manager.rb bucket/pr-manager.json
             if git diff --cached --quiet; then exit 0; fi
             git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-              commit -m "Update Homebrew cask for pr-manager $RELEASE_TAG"
+              commit -m "Update Homebrew cask and Scoop manifest for pr-manager $RELEASE_TAG"
             git push origin main && exit 0
             sleep 5
           done
@@ -281,9 +282,9 @@ jobs:
           cd "$RUNNER_TEMP/desktop-release"
           sha256sum PR-Manager-macos-arm64.zip pr-manager-linux-amd64.tar.gz pr-manager-windows-amd64.exe > desktop-checksums.txt
           gh release upload "$RELEASE_TAG" desktop-checksums.txt --clobber
-      # Casks/** changes do not trigger CI, so this commit does not start a
-      # new release.
-      - name: Update desktop Homebrew cask
+      # Casks/** and bucket/** changes do not trigger CI, so this commit does
+      # not start a new release.
+      - name: Update desktop Homebrew cask and Scoop manifest
         if: ${{ !contains(needs.version.outputs.tag, '-') }}
         env:
           RELEASE_TAG: ${{ needs.version.outputs.tag }}
@@ -291,12 +292,13 @@ jobs:
           for attempt in 1 2 3; do
             git fetch origin main
             git checkout -B main origin/main
-            mkdir -p Casks
+            mkdir -p Casks bucket
             bash scripts/desktop-cask.sh "$RELEASE_TAG" "$RUNNER_TEMP/desktop-release/PR-Manager-macos-arm64.zip" > Casks/pr-manager-desktop.rb
-            git add Casks/pr-manager-desktop.rb
+            bash scripts/scoop-manifest.sh desktop "$RELEASE_TAG" "$RUNNER_TEMP/desktop-release/pr-manager-windows-amd64.exe" > bucket/pr-manager-desktop.json
+            git add Casks/pr-manager-desktop.rb bucket/pr-manager-desktop.json
             if git diff --cached --quiet; then exit 0; fi
             git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-              commit -m "Update Homebrew cask for pr-manager-desktop $RELEASE_TAG"
+              commit -m "Update Homebrew cask and Scoop manifest for pr-manager-desktop $RELEASE_TAG"
             git push origin main && exit 0
             sleep 5
           done
