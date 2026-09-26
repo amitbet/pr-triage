@@ -104,9 +104,6 @@ type Summarizer struct {
 	// Tools lets providers that support it (the CLIs) read the repository at
 	// the PR head while reviewing. Pipeline.Run sets up the workspace.
 	Tools bool
-	// Language, if set (e.g. "Hebrew"), is the language of the text the
-	// reader sees: headline, summary, focus and issue text. Empty is English.
-	Language string
 	// workspace is what the reviewer may read; nil without Tools.
 	workspace *llm.Workspace
 }
@@ -118,15 +115,9 @@ func (s *Summarizer) prompt(u *Unit, triage string) string {
 	return p + u.ReviewContext + reviewContext(u) + "\n" + triage
 }
 
-// languageInstructions is added when the reader wants another language.
-const languageInstructions = `
-Write headline, summary, focus, escalate_reason and each issue's title, detail and failure_scenario in %s. Keep code identifiers, file paths, flags and error strings as they are in the code, and quote evidence verbatim. Enum values (severity) stay in English.`
-
-// system adds the language and tools instructions.
+// system adds the tools instructions. The review is always in English;
+// other languages are translated from it (see Translate).
 func (s *Summarizer) system(base string) string {
-	if s.Language != "" && !strings.EqualFold(s.Language, "english") {
-		base += fmt.Sprintf(languageInstructions, s.Language)
-	}
 	ws := s.workspace
 	if ws == nil {
 		return base

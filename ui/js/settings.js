@@ -27,6 +27,7 @@ for (const [k, v] of Object.entries({ ...localStorage })) {
 }
 const save = (k, v) => localStorage.setItem(`pr-manager.${k}`, v);
 let onBudget = () => {};
+let onLang = () => {};
 
 function fillProviders(r) {
   const sel = $(`#${r.role}`);
@@ -103,7 +104,13 @@ function fillLang() {
   sel.innerHTML = `<option value="">default (${esc(def || "English")})</option>` + (def ? `<option value="English">English</option>` : "") + opts.join("");
   const want = saved("summary_lang");
   sel.value = [...sel.options].some((o) => o.value === want) ? want : "";
-  sel.onchange = () => { save("summary_lang", sel.value); showLine(); };
+  sel.onchange = () => { save("summary_lang", sel.value); showLine(); onLang(); };
+}
+
+// summaryLang is the language to show summaries in; "" is English.
+export function summaryLang() {
+  const lang = $("#summary_lang").value || S.cfg?.summary_lang || "";
+  return lang.toLowerCase() === "english" ? "" : lang;
 }
 
 // roleText is "provider/model" as the next triage will run it.
@@ -142,8 +149,8 @@ function showBudget() {
 function showLine() {
   const list = budgetList();
   const b = list.length ? budget.chosen(list, budgetDefault()) : "";
-  const lang = $("#summary_lang").value || S.cfg?.summary_lang || "";
-  const text = [roleText(ROLES[0]), roleText(ROLES[1])].join(" · ") + (lang && lang !== "English" ? ` · ${lang}` : "") + (b ? ` · budget ${b}` : "");
+  const lang = summaryLang();
+  const text = [roleText(ROLES[0]), roleText(ROLES[1])].join(" · ") + (lang ? ` · ${lang}` : "") + (b ? ` · budget ${b}` : "");
   $("#settings-line").textContent = text;
   $("#settings-line").title = `classifier · summarizer${lang ? " · language" : ""} · review budget\n${text}`;
 }
@@ -220,9 +227,11 @@ export function fixSettings() {
 // refreshSettings updates the budget section for the result on screen.
 export const refreshSettings = () => showBudget();
 
-// initSettings wires the dialog. changed() runs when the budget moves.
-export function initSettings(changed) {
+// initSettings wires the dialog. changed() runs when the budget moves,
+// langChanged() when the summary language does.
+export function initSettings(changed, langChanged) {
   onBudget = changed;
+  onLang = langChanged;
   const dlg = $("#settings");
   $("#settings-btn").onclick = () => { showBudget(); dlg.showModal(); };
   dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); }); // backdrop

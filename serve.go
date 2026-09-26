@@ -39,7 +39,8 @@ type PRResult struct {
 	PR         *triage.PRInfo `json:"pr"`
 	Classifier string         `json:"classifier"`
 	Summarizer string         `json:"summarizer"`
-	// SummaryLang is the language of the summaries; empty is English.
+	// SummaryLang is set on results from before translation, reviewed in
+	// that language. Newer results are English; see translation.
 	SummaryLang string                `json:"summary_lang,omitempty"`
 	CreatedAt   time.Time             `json:"created_at"`
 	DurationMS  int64                 `json:"duration_ms"`
@@ -108,6 +109,9 @@ type triager struct {
 	mu    sync.Mutex
 	jobs  map[string]*job
 	fixMu sync.Mutex
+	trMu  sync.Mutex // guards trLocks
+	// trLocks has a lock per translation file, so one PR is translated once.
+	trLocks map[string]*sync.Mutex
 }
 
 type job struct {
@@ -132,6 +136,7 @@ func newTriager(o options) (*triager, error) {
 		fetcher: &triage.PRFetcher{Dir: filepath.Join(o.cache, "repos")},
 		results: filepath.Join(o.cache, "results"),
 		jobs:    map[string]*job{},
+		trLocks: map[string]*sync.Mutex{},
 	}
 	return t, os.MkdirAll(t.results, 0o755)
 }
@@ -185,24 +190,21 @@ func (t *triager) options(jo jobOptions) options {
 
 func cacheKey(ref triage.PRRef, head string, o options) string {
 	parts := []string{triage.PromptVersion, o.classifier, o.classifyModel, o.fallback, o.fallbackModel, o.summarizer, o.summaryModel, o.classifyEffort, o.reviewEffort, fmt.Sprint(o.reviewTools), codeMapVersion(loadCodeMap(o.codemapDir))}
-	if o.summaryLang != "" { // English keeps the keys it had before languages
-		parts = append(parts, "lang="+strings.ToLower(o.summaryLang))
-	}
 	h := sha256.Sum256([]byte(strings.Join(parts, "|")))
 	return fmt.Sprintf("%s__%.10s__%x", ref.FileKey(), head, h[:4])
 }
 
 // latestCached returns the newest cached result for this PR head from any
 // prompt, provider or code-map version. A PR that was already triaged is
-// only re-run when asked (force), not because the pipeline changed. The
-// language must match, since a summary the reader can't read is no use.
-func (t *triager) latestCached(ref triage.PRRef, head, lang string) (*PRResult, error) {
+// only re-run when asked (force), not because the pipeline changed. Only
+// English results count: other languages are translated from them.
+func (t *triager) latestCached(ref triage.PRRef, head string) (*PRResult, error) {
 	pattern := filepath.Join(t.results, fmt.Sprintf("%s__%.10s__*.json", ref.FileKey(), head))
 	paths, _ := filepath.Glob(pattern)
 	var best *PRResult
 	for _, p := range paths {
 		r, err := t.Load(strings.TrimSuffix(filepath.Base(p), ".json"))
-		if err == nil && strings.EqualFold(r.SummaryLang, lang) && (best == nil || r.CreatedAt.After(best.CreatedAt)) {
+		if err == nil && r.SummaryLang == "" && (best == nil || r.CreatedAt.After(best.CreatedAt)) {
 			best = r
 		}
 	}
@@ -225,11 +227,7 @@ func (t *triager) Run(ctx context.Context, ref triage.PRRef, jo jobOptions, prog
 		if r, err := t.Load(key); err == nil {
 			return r, nil
 		}
-		lang := o.summaryLang
-		if o.summarizer == "off" {
-			lang = ""
-		}
-		if r, err := t.latestCached(ref, info.HeadOid, lang); err == nil {
+		if r, err := t.latestCached(ref, info.HeadOid); err == nil {
 			return r, nil
 		}
 	}
@@ -276,9 +274,6 @@ func (t *triager) runSource(ctx context.Context, key string, info *triage.PRInfo
 	}
 	if o.reviewTools && (o.summarizer == "codex" || o.summarizer == "claude-code") {
 		r.Summarizer += " +repo tools"
-	}
-	if o.summarizer != "off" {
-		r.SummaryLang = o.summaryLang
 	}
 	byFile := map[string][]resultUnit{}
 	for _, u := range units {
@@ -532,6 +527,24 @@ func newServeHandler(o options) (http.Handler, error) {
 			return
 		}
 		writeJSON(w, 200, res)
+	})
+	mux.HandleFunc("POST /api/results/{key}/translate", func(w http.ResponseWriter, r *http.Request) {
+		var jo jobOptions
+		if err := json.NewDecoder(r.Body).Decode(&jo); err != nil {
+			writeErr(w, 400, err)
+			return
+		}
+		res, err := t.Load(r.PathValue("key"))
+		if err != nil {
+			writeErr(w, 404, err)
+			return
+		}
+		tr, err := t.translation(r.Context(), res, jo)
+		if err != nil {
+			writeErr(w, 502, err)
+			return
+		}
+		writeJSON(w, 200, tr)
 	})
 	mux.HandleFunc("POST /api/triage", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {

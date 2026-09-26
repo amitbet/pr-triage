@@ -97,7 +97,7 @@ func main() {
 	fs.StringVar(&o.classifyEffort, "classify-effort", "low", "reasoning effort for classify (openai, codex, claude-code): none|minimal|low|medium|high|xhigh ('' = model default)")
 	fs.StringVar(&o.reviewEffort, "review-effort", "medium", "reasoning effort for summarize/review (openai, codex, claude-code; '' = model default)")
 	fs.BoolVar(&o.reviewTools, "review-tools", true, "let the codex/claude-code reviewer read the repo at the PR head (a git worktree) and the Go module cache; slower, catches claims about code outside the diff (-review-tools=false to turn off)")
-	fs.StringVar(&o.summaryLang, "summary-lang", "", "language for summaries, review notes and issue text, e.g. Hebrew or Japanese (default English)")
+	fs.StringVar(&o.summaryLang, "summary-lang", "", "language to translate summaries, review notes and issue text into, e.g. Hebrew or Japanese (default English: no translation)")
 	fs.StringVar(&o.reviewBudget, "review-budget", "", "how much goes to human review: "+strings.Join(triage.BudgetNames, "|")+" (default: tiers.review_budget in the policy, else "+triage.DefaultBudget+")")
 	fs.StringVar(&o.openjevURL, "openjev-url", "", "OpenJev server (default $OPENJEV_BASE_URL or http://127.0.0.1:8771)")
 	fs.StringVar(&o.codemapDir, "codemap", filepath.Join(cacheRoot, "codemap"), "code map directory for impact, file history and tier moves (off to disable; build with pr-manager codemap build)")
@@ -208,6 +208,10 @@ func runTriage(ctx context.Context, o options) error {
 		if err := triage.Rebucket(report.Units, r.tierPolicy(), o.reviewBudget); err != nil {
 			return err
 		}
+		if !triage.IsEnglish(o.summaryLang) {
+			tr, err := t.translation(ctx, r, jobOptions{})
+			applyTranslation(o, report.Units, tr, err)
+		}
 	} else {
 		var src *triage.Source
 		var err error
@@ -236,6 +240,10 @@ func runTriage(ctx context.Context, o options) error {
 			pipe.CodeMap = &triage.CodeMap{Map: m, Repo: localRepoName(o)}
 		}
 		report = &triage.Report{Base: o.base, Head: o.head, Units: pipe.Run(ctx, src)}
+		if !triage.IsEnglish(o.summaryLang) {
+			tr, err := translateUnits(ctx, o, report.Units)
+			applyTranslation(o, report.Units, tr, err)
+		}
 	}
 
 	w := io.Writer(os.Stdout)
@@ -431,7 +439,7 @@ func buildPipeline(o options, policy triage.Policy, gitattrs []string) (*triage.
 			return nil, err
 		}
 		llm.SetEffort(critic, o.reviewEffort)
-		pipe.Summarizer = &triage.Summarizer{LLM: l, Critic: critic, Policy: policy, Tools: o.reviewTools, Language: o.summaryLang}
+		pipe.Summarizer = &triage.Summarizer{LLM: l, Critic: critic, Policy: policy, Tools: o.reviewTools}
 	}
 	pipe.Warn = func(msg string) { fmt.Fprintln(os.Stderr, "pr-manager:", msg) }
 	return pipe, nil
