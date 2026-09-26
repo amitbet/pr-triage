@@ -24,6 +24,18 @@ port on `127.0.0.1`, prints its URL and opens your browser. Stop it with Ctrl+C.
 The initial cask removes quarantine from this unsigned executable using a
 post-install hook. Apple signing and notarization are not configured yet.
 
+The macOS arm64 desktop app has its own cask:
+
+```sh
+brew install --cask amitbet/pr-triage/pr-triage-desktop
+```
+
+It installs `PR Triage.app` into `/Applications` and removes quarantine the same
+way. If you download `PR-Triage-macos-arm64.zip` from GitHub Releases instead,
+macOS blocks the first launch because the app is ad-hoc signed and not notarized.
+Allow it under System Settings → Privacy & Security → Open Anyway, or run
+`xattr -dr com.apple.quarantine "/Applications/PR Triage.app"`.
+
 ## Direct downloads, including Windows and Linux
 
 Download the archive for your OS and architecture from GitHub Releases and verify

@@ -30,6 +30,10 @@ case "$os/$arch" in
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
+    # Seal the whole bundle, including Info.plist. Without this, Gatekeeper
+    # reports a downloaded copy as damaged instead of offering Open Anyway.
+    codesign --force --deep --sign - "$app"
+    codesign --verify --deep --strict "$app"
     ditto -c -k --keepParent "$app" "$out/PR-Triage-macos-arm64.zip"
     ;;
   linux/amd64)

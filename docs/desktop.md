@@ -20,7 +20,9 @@ all three hosts, then uploads the results as workflow artifacts. A push to
 GitHub release alongside the CLI archives. Pushing a version tag directly still
 publishes through `.github/workflows/release.yml`. The release assets are
 `PR-Triage-macos-arm64.zip`, `pr-triage-linux-amd64.tar.gz`, and
-`pr-triage-windows-amd64.exe`. The macOS app is unsigned.
+`pr-triage-windows-amd64.exe`. The macOS app is ad-hoc signed but not
+notarized. Each stable release also updates `Casks/pr-triage-desktop.rb`, which
+installs the app and removes quarantine (see [install](install.md)).
 
 The CLI and browser server remain the pure Go build. `go run . serve`,
 `make serve`, and `make build` use gotreesitter and do not require a C compiler.
