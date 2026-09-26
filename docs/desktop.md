@@ -15,8 +15,11 @@ On Windows, run `bash scripts/build-desktop.sh` from an MSYS2 UCRT64 shell if
 
 The build is native because cgo compiles each tree-sitter grammar for the host
 OS and architecture. `.github/workflows/ci.yml` runs tests and builds on
-all three hosts, then uploads the results as workflow artifacts. The macOS app
-is unsigned.
+all three hosts, then uploads the results as workflow artifacts. On a version
+tag, `.github/workflows/release.yml` builds all three desktop packages and adds
+them to the GitHub release alongside the CLI archives. The release assets are
+`PR-Triage-macos-arm64.zip`, `pr-triage-linux-amd64.tar.gz`, and
+`pr-triage-windows-amd64.exe`. The macOS app is unsigned.
 
 The CLI and browser server remain the pure Go build. `go run . serve`,
 `make serve`, and `make build` use gotreesitter and do not require a C compiler.

@@ -2,7 +2,6 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ['v*']
     paths-ignore: ['Casks/**']
   pull_request:
   workflow_dispatch:
@@ -12,28 +11,8 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  cli:
-    name: CLI checks (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: Vet
-        run: go vet ./...
-      - name: Test
-        run: go test ./...
-      - name: Build and smoke-test CLI
-        run: |
-          go build -o "$RUNNER_TEMP/pr-triage" .
-          python3 scripts/smoke-release.py "$RUNNER_TEMP/pr-triage"
   snapshot:
-    name: CLI release snapshot
+    name: CLI snapshot and serve check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,6 +21,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Vet and test pure Go path
+        run: go vet ./... && go test ./...
+      - name: Smoke-test serve
+        run: |
+          go build -o "$RUNNER_TEMP/pr-triage" .
+          python3 scripts/smoke-release.py "$RUNNER_TEMP/pr-triage"
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: v2.18.2

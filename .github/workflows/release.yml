@@ -8,7 +8,66 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  desktop:
+    name: Desktop build (${{ matrix.artifact }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            artifact: macos-arm64
+            test_tags: desktop
+            output: dist/desktop/PR-Triage-macos-arm64.zip
+          - os: ubuntu-24.04
+            artifact: linux-amd64
+            test_tags: desktop,webkit2_41
+            output: dist/desktop/pr-triage-linux-amd64.tar.gz
+          - os: windows-latest
+            artifact: windows-amd64
+            test_tags: desktop
+            output: dist/desktop/pr-triage-windows-amd64.exe
+    runs-on: ${{ matrix.os }}
+    env:
+      CGO_ENABLED: 1
+      DESKTOP_VERSION: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install Linux WebKitGTK build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config
+      - uses: msys2/setup-msys2@v2
+        if: runner.os == 'Windows'
+        with:
+          msystem: UCRT64
+          path-type: inherit
+          install: mingw-w64-ucrt-x86_64-gcc
+      - name: Test cgo parser and app
+        if: runner.os != 'Windows'
+        shell: bash
+        run: go test -tags '${{ matrix.test_tags }}' ./...
+      - name: Build desktop app
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash scripts/build-desktop.sh
+      - name: Build desktop app on Windows
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: bash scripts/build-desktop.sh
+      - name: Test cgo parser and app on Windows
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: go test -tags desktop ./...
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr-triage-desktop-${{ matrix.artifact }}
+          path: ${{ matrix.output }}
+          if-no-files-found: error
   release:
+    needs: desktop
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +82,18 @@ jobs:
           go test ./...
           go build -o "$RUNNER_TEMP/pr-triage" .
           python3 scripts/smoke-release.py "$RUNNER_TEMP/pr-triage"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pr-triage-desktop-*
+          path: ${{ runner.temp }}/desktop-release
+          merge-multiple: true
+      - name: Verify desktop packages
+        run: |
+          test -s "$RUNNER_TEMP/desktop-release/PR-Triage-macos-arm64.zip"
+          test -s "$RUNNER_TEMP/desktop-release/pr-triage-linux-amd64.tar.gz"
+          test -s "$RUNNER_TEMP/desktop-release/pr-triage-windows-amd64.exe"
+          cd "$RUNNER_TEMP/desktop-release"
+          sha256sum PR-Triage-macos-arm64.zip pr-triage-linux-amd64.tar.gz pr-triage-windows-amd64.exe > desktop-checksums.txt
       # Publishes the archives and commits Casks/pr-triage.rb to main, which
       # makes this repository its own Homebrew tap.
       - uses: goreleaser/goreleaser-action@v6
@@ -31,3 +102,13 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload desktop packages to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            "$RUNNER_TEMP/desktop-release/PR-Triage-macos-arm64.zip" \
+            "$RUNNER_TEMP/desktop-release/pr-triage-linux-amd64.tar.gz" \
+            "$RUNNER_TEMP/desktop-release/pr-triage-windows-amd64.exe" \
+            "$RUNNER_TEMP/desktop-release/desktop-checksums.txt" \
+            --clobber

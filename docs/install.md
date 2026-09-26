@@ -92,7 +92,10 @@ and pushes the cask. If the default branch is protected, allow GitHub Actions to
 push to it.
 
 To release, push a version tag such as `v0.1.0`. `.github/workflows/release.yml`
-runs the tests, publishes archives and checksums, and updates the cask.
+runs the tests, builds the desktop apps on macOS arm64, Linux amd64 and Windows
+amd64, publishes the desktop packages alongside the CLI archives and checksums,
+and updates the cask. `checksums.txt` covers the GoReleaser CLI archives; the
+desktop packages are separate release assets covered by `desktop-checksums.txt`.
 Prerelease tags (`v0.2.0-rc.1`) publish release assets without updating the cask.
 `.github/workflows/ci.yml` runs vet, tests and the smoke check on every push and
 pull request.
